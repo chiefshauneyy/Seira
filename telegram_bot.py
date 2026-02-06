@@ -20,7 +20,7 @@ import seira_core as core
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 load_dotenv(os.path.join(BASE_DIR, ".env"))
 
-# CORRECTED: Get by key name, or fallback to the hardcoded string if env fails
+# Fallback values if .env isn't loaded correctly
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN") or "8568467650:AAHnleqe6B1GTXc1ZmQvb9VTKdOMLOgccBk"
 ALLOWED_USER_ID = os.getenv("TELEGRAM_ALLOWED_USER_ID", "7065094951").strip()
 TIMEZONE = pytz.timezone("America/Chicago")
@@ -100,7 +100,7 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # --- MAIN ---
 
-def main():
+async def main():
     # Safer debug check
     if not TOKEN or len(TOKEN) < 10:
         print("CRITICAL ERROR: Telegram Token is missing or invalid!")
@@ -108,10 +108,11 @@ def main():
 
     print(f"DEBUG: Attempting connection (Token ends in: {TOKEN[-5:]})")
 
+    # Initialize Application
     app = Application.builder().token(TOKEN).build()
-    job_queue = app.job_queue
-
+    
     # Schedule Briefings
+    job_queue = app.job_queue
     job_queue.run_daily(send_scheduled_briefing, time(8, 0, tzinfo=TIMEZONE), name="daily_warfare")
     job_queue.run_daily(send_scheduled_briefing, time(12, 0, tzinfo=TIMEZONE), name="noon_astrophysics")
     job_queue.run_daily(send_scheduled_briefing, time(19, 0, tzinfo=TIMEZONE), name="evening_astrophysics")
@@ -124,7 +125,17 @@ def main():
     app.add_handler(MessageHandler(filters.VOICE, core.on_voice))
 
     print(f"--- {core.AGENT_NAME} DAEMON ACTIVE ---")
-    app.run_polling()
+    
+    # Use the context manager to handle setup/teardown properly in Python 3.14
+    async with app:
+        await app.initialize()
+        await app.start()
+        await app.updater.start_polling()
+        # Keep the bot running until interrupted
+        await asyncio.Event().wait()
 
 if __name__ == "__main__":
-    main()
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("\nStopping Seira...")
