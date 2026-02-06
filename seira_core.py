@@ -37,6 +37,29 @@ Telegram approval quick actions:
   remind: 2026-02-07 09:00 <text>
 """.strip()
 
+def memory_pretty(memory: Dict[str, Any]) -> str:
+    return json.dumps(memory, indent=2, ensure_ascii=False)
+
+def memory_summary(memory: Dict[str, Any]) -> str:
+    """Returns a readable summary to avoid Telegram character limits."""
+    profile = memory.get("profile", {})
+    notes_count = len(memory.get("notes", []))
+    checkins_count = len(memory.get("checkins", []))
+    reminders = [r for r in memory.get("reminders", []) if not r.get("sent")]
+    
+    summary = [
+        f"🧠 {AGENT_NAME} Memory Status",
+        f"👤 User: {profile.get('telegram_chat_id', 'Unknown')}",
+        f"📝 Notes: {notes_count}",
+        f"📊 Check-ins: {checkins_count}",
+        f"⏰ Active Reminders: {len(reminders)}",
+        "\nLast 3 Notes:"
+    ]
+    for n in memory.get("notes", [])[-3:]:
+        summary.append(f"- {n['ts'][:10]}: {n['text'][:40]}...")
+        
+    return "\n".join(summary)
+
 
 def _now_iso() -> str:
     return datetime.now().isoformat(timespec="seconds")
