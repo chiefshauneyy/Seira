@@ -21,9 +21,6 @@ load_dotenv(dotenv_path=".env")
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
 ALLOWED_USER_ID = os.getenv("TELEGRAM_ALLOWED_USER_ID", "").strip()
 
-CHECKIN_HOUR = int(os.getenv("CHECKIN_HOUR", "9"))
-CHECKIN_MINUTE = int(os.getenv("CHECKIN_MINUTE", "0"))
-
 def is_allowed(update: Update) -> bool:
     user = update.effective_user
     if not user: return False
@@ -32,15 +29,8 @@ def is_allowed(update: Update) -> bool:
     if not ALLOWED_USER_ID: return True
     return current_id == ALLOWED_USER_ID
 
-def _approval_keyboard(action_id: str) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton("✅ Approve", callback_data=f"approve:{action_id}"),
-            InlineKeyboardButton("❌ Reject", callback_data=f"reject:{action_id}")
-        ]
-    ])
-
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    print("Command Triggered: /start")
     if not is_allowed(update): return
     mem = core.load_memory()
     mem.setdefault("profile", {})["telegram_chat_id"] = update.effective_chat.id
@@ -48,10 +38,12 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"{core.AGENT_NAME} online. Use /help.")
 
 async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    print("Command Triggered: /help")
     if not is_allowed(update): return
     await update.message.reply_text(core.HELP_TEXT)
 
 async def cmd_memory(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    print("Command Triggered: /memory")
     if not is_allowed(update): return
     memory = core.load_memory()
     text = core.memory_pretty(memory)
@@ -59,64 +51,57 @@ async def cmd_memory(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text = core.memory_summary(memory) + "\n\n(Full JSON too large)"
     await update.message.reply_text(f"```json\n{text}\n```", parse_mode="Markdown")
 
-async def cmd_whoami(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(f"Your Telegram user id: {update.effective_user.id}")
+async def cmd_remember(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Explicitly handles the /remember command."""
+    print(f"Command Triggered: /remember with args: {context.args}")
+    if not is_allowed(update): return
+    
+    # Reconstruct the command for the core parser
+    full_text = f"/remember {' '.join(context.args)}"
+    handled, reply, _ = core.handle_command(full_text, core.load_memory())
+    
+    if handled:
+        await update.message.reply_text(reply)
+    else:
+        await update.message.reply_text("Usage: /remember key=value")
 
 async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_allowed(update): return
     text = update.message.text.strip()
-    print(f"Message: {text}")
+    print(f"Message Received: {text}")
+    
     memory = core.load_memory()
     
-    handled, reply, _ = core.handle_command(text, memory)
-    if handled:
-        await update.message.reply_text(reply)
-        return
-
-    # UPDATED SYSTEM PROMPT
+    # Identity-driven response
     system = (
-        f"You are {core.AGENT_NAME}, Shaun's personal stateful AI companion. "
-        "You have a long-term memory stored in a JSON file. "
-        "If the user tells you something to remember and hasn't used a slash command, "
-        "tell them to use the format '/remember key=value'. "
-        "Never say you cannot remember things—you are designed specifically to do that."
+        f"You are {core.AGENT_NAME}, Shaun's personal companion. "
+        "Use the current memory to be helpful. If the user wants to save "
+        "a fact, tell them to use '/remember key=value'."
     )
-    user_msg = f"Current Memory Summary:\n{core.memory_summary(memory)}\n\nUser says: {text}"
+    user_msg = f"Memory Summary:\n{core.memory_summary(memory)}\n\nUser: {text}"
     await update.message.reply_text(core.llm(system, user_msg))
 
-async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_allowed(update): return
-    query = update.callback_query
-    await query.answer()
-    verb, action_id = query.data.split(":", 1)
-    result = core.execute_action(core.load_memory(), action_id) if verb == "approve" else "Rejected."
-    await query.edit_message_text(result)
-
 async def main_async():
-    """Main async entry point for Python 3.14 compatibility."""
     if not TOKEN:
         print("CRITICAL: Token missing.")
         return
 
     app = Application.builder().token(TOKEN).build()
 
-    # Handlers
+    # Explicit Command Registration
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("help", cmd_help))
     app.add_handler(CommandHandler("memory", cmd_memory))
-    app.add_handler(CommandHandler("whoami", cmd_whoami))
-    app.add_handler(CallbackQueryHandler(on_callback))
+    app.add_handler(CommandHandler("remember", cmd_remember)) # Added this
+    
+    # Message handler (Now catches everything NOT a registered command)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_message))
 
-    print(f"--- {core.AGENT_NAME} STARTUP ---")
-    print(f"User ID: {ALLOWED_USER_ID}")
-    
     async with app:
         await app.initialize()
         await app.start()
-        print("Seira is now polling...")
+        print("--- SEIRA STARTUP COMPLETE ---")
         await app.updater.start_polling()
-        # Keep the bot running until interrupted
         while True:
             await asyncio.sleep(1)
 
