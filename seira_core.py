@@ -109,18 +109,30 @@ def llm(system: str, user: str) -> str:
     return resp.choices[0].message.content.strip()
 
 def handle_command(text: str, memory: Dict[str, Any]) -> Tuple[bool, str, Dict[str, Any]]:
-    cmd = text.strip()
-    if cmd.lower() == "/help": return True, HELP_TEXT, memory
-    if cmd.lower() == "/memory": return True, memory_pretty(memory), memory
+    cmd = text.strip().lower()
     
-    m = REMEMBER_RE.match(cmd)
-    if m:
-        key, val = m.group(1).strip(), m.group(2).strip()
-        memory_set(memory, key, val)
-        save_memory(memory)
-        return True, f"✅ Updated: {key} is now {val}.", memory
-
-    return False, "", memory
+    if cmd == "/today":
+        # Get fitness data
+        checkins = memory.get("checkins", [])
+        last = checkins[-1] if checkins else {"sleep": 7, "stress": 5}
+        r = compute_readiness(last) # Uses the logic we defined earlier
+        
+        # Get Work/Identity Context
+        p = memory.get("profile", {})
+        w = memory.get("work", {})
+        
+        brief = [
+            f"⚔️ **Operator Brief: {datetime.now().strftime('%Y-%m-%d')}**",
+            f"Status: {r['label']} ({r['score']}/100)",
+            f"\n**Physical:**",
+            f"- Recommendation: {r['recommendation']}",
+            f"- Goal: {memory['fitness']['program']}",
+            f"\n**Operations:**",
+            f"- Project Alpha: {w['projects'][0]} (CCTAT)",
+            f"- Project Beta: {w['projects'][1]} (n8n Automation)",
+            f"\n**Rule of Engagement:** {w['rules']}"
+        ]
+        return True, "\n".join(brief), memory
 
 def execute_action(memory: Dict[str, Any], action_id: str) -> str:
     pending = memory.get("pending_actions", {})
