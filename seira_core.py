@@ -11,16 +11,15 @@ load_dotenv(dotenv_path=".env")
 AGENT_NAME = os.getenv("AGENT_NAME", "Seira")
 MEMORY_PATH = os.getenv("MEMORY_PATH", "memory.json")
 
-# Regex for command parsing
 REMEMBER_RE = re.compile(r"^/remember\s+([^=\s]+)\s*=\s*(.+)\s*$", re.IGNORECASE)
 
 HELP_TEXT = f"""
-{AGENT_NAME} commands:
+{AGENT_NAME} Operator Commands:
   /help                Show this help
   /memory              Print current memory
   /remember <k>=<v>    Save a specific key/value
-  /note <text>         Append a note
-  /today               Readiness score
+  /note <text>         Append a timestamped note
+  /today               Readiness score & training rec
 """.strip()
 
 def _now_iso() -> str:
@@ -28,10 +27,28 @@ def _now_iso() -> str:
 
 def _default_memory() -> Dict[str, Any]:
     return {
-        "profile": {"telegram_chat_id": None},
-        "preferences": {},
-        "rules": {"execution_mode": "approval"},
-        "fitness": {},
+        "profile": {
+            "name": "Shaun Constantino",
+            "age": 27,
+            "background": "USMC Scout Sniper / PMC / Cloud Architecture",
+            "identity": "Mexican & Native American (Red Cloud descendant)",
+            "location": "San Antonio, TX",
+            "telegram_chat_id": None
+        },
+        "work": {
+            "role": "Cloud Architecture Contractor",
+            "projects": ["CCTAT (formerly TDY Tracker)", "n8n Ag-Market Automation", "$henanomics"],
+            "rules": "Keep AOL and CCTAT documentation strictly separate."
+        },
+        "fitness": {
+            "weight_goal": "Recomp/Cut",
+            "program": "2x/day Tue-Sat, Arms 3x/week, Recon Ron Pull-ups",
+            "stats": {"last_reported_weight": 192}
+        },
+        "preferences": {
+            "workflow": "Full code updates only. Git: PC push -> Mac pull.",
+            "communication": "Step-by-step, clean checklists, exact commands."
+        },
         "notes": [],
         "checkins": [],
         "reminders": [],
@@ -44,9 +61,14 @@ def load_memory() -> Dict[str, Any]:
     try:
         with open(MEMORY_PATH, "r", encoding="utf-8") as f:
             data = json.load(f)
+        # Ensure deep merge of default keys if missing
         base = _default_memory()
         for k, v in base.items():
-            data.setdefault(k, v)
+            if k not in data:
+                data[k] = v
+            elif isinstance(v, dict):
+                for sub_k, sub_v in v.items():
+                    data[k].setdefault(sub_k, sub_v)
         return data
     except Exception:
         return _default_memory()
@@ -59,22 +81,18 @@ def memory_pretty(memory: Dict[str, Any]) -> str:
     return json.dumps(memory, indent=2, ensure_ascii=False)
 
 def memory_summary(memory: Dict[str, Any]) -> str:
-    notes_count = len(memory.get("notes", []))
-    prefs = memory.get("preferences", {})
-    summary = [
-        f"🧠 {AGENT_NAME} Memory Status",
-        f"📝 Notes: {notes_count}",
-        f"⚙️ Preferences: {list(prefs.keys()) if prefs else 'None'}"
-    ]
-    return "\n".join(summary)
+    p = memory.get("profile", {})
+    w = memory.get("work", {})
+    return (
+        f"👤 Operator: {p.get('name')} | {p.get('background')}\n"
+        f"📍 Location: {p.get('location')}\n"
+        f"🚧 Active Work: {', '.join(w.get('projects', []))}\n"
+        f"🛠️ Rule: {w.get('rules')}"
+    )
 
 def memory_set(memory: Dict[str, Any], dotted_key: str, value: Any) -> None:
     parts = dotted_key.split(".")
     cur = memory
-    # We default to saving custom things in 'preferences' if no root is specified
-    if parts[0] not in memory:
-        parts.insert(0, "preferences")
-        
     for p in parts[:-1]:
         if p not in cur or not isinstance(cur[p], dict):
             cur[p] = {}
@@ -92,21 +110,15 @@ def llm(system: str, user: str) -> str:
 
 def handle_command(text: str, memory: Dict[str, Any]) -> Tuple[bool, str, Dict[str, Any]]:
     cmd = text.strip()
+    if cmd.lower() == "/help": return True, HELP_TEXT, memory
+    if cmd.lower() == "/memory": return True, memory_pretty(memory), memory
     
-    if cmd.lower() == "/help":
-        return True, HELP_TEXT, memory
-    
-    if cmd.lower() == "/memory":
-        return True, memory_pretty(memory), memory
-
-    # Handle /remember key=value
     m = REMEMBER_RE.match(cmd)
     if m:
-        key = m.group(1).strip()
-        val = m.group(2).strip()
+        key, val = m.group(1).strip(), m.group(2).strip()
         memory_set(memory, key, val)
         save_memory(memory)
-        return True, f"✅ I've remembered that {key} is {val}.", memory
+        return True, f"✅ Updated: {key} is now {val}.", memory
 
     return False, "", memory
 
@@ -115,4 +127,4 @@ def execute_action(memory: Dict[str, Any], action_id: str) -> str:
     if action_id not in pending: return "Action not found."
     del pending[action_id]
     save_memory(memory)
-    return "Action executed."
+    return "Action approved and executed."
