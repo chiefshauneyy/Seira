@@ -1,6 +1,7 @@
 import os
 import asyncio
 import io
+import json
 import logging
 from datetime import time
 import pytz
@@ -15,12 +16,13 @@ from telegram.ext import (
 )
 import seira_core as core
 
-# Absolute Pathing
+# Absolute Pathing to ensure .env is found by the background process
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 load_dotenv(os.path.join(BASE_DIR, ".env"))
 
-TOKEN = os.getenv("8568467650:AAHnleqe6B1GTXc1ZmQvb9VTKdOMLOgccBk")
-ALLOWED_USER_ID = os.getenv("TELEGRAM_ALLOWED_USER_ID", "").strip()
+# CORRECTED: Get by key name, or fallback to the hardcoded string if env fails
+TOKEN = os.getenv("TELEGRAM_BOT_TOKEN") or "8568467650:AAHnleqe6B1GTXc1ZmQvb9VTKdOMLOgccBk"
+ALLOWED_USER_ID = os.getenv("TELEGRAM_ALLOWED_USER_ID", "7065094951").strip()
 TIMEZONE = pytz.timezone("America/Chicago")
 
 # Logging
@@ -48,11 +50,12 @@ async def send_scheduled_briefing(context: ContextTypes.DEFAULT_TYPE):
     briefing_content = core.get_scheduled_lesson(topic, memory)
     await context.bot.send_message(chat_id=chat_id, text=briefing_content)
 
-# --- NEW: TEST COMMAND ---
+# --- TEST COMMAND ---
 
 async def trigger_war_test(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Manually triggers a warfare briefing for testing."""
-    if not is_allowed(update): return
+    if not is_allowed(update): 
+        return
     
     await update.message.reply_text("Copy that, Operator. Forcing a Warfare Briefing now...")
     
@@ -98,10 +101,12 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # --- MAIN ---
 
 def main():
-    print(f"DEBUG: Attempting to connect with Token: {TOKEN[:5]}...{TOKEN[-5:]}")
-    if not TOKEN: 
-        print("CRITICAL ERROR: No Telegram Token found!")
+    # Safer debug check
+    if not TOKEN or len(TOKEN) < 10:
+        print("CRITICAL ERROR: Telegram Token is missing or invalid!")
         return
+
+    print(f"DEBUG: Attempting connection (Token ends in: {TOKEN[-5:]})")
 
     app = Application.builder().token(TOKEN).build()
     job_queue = app.job_queue
