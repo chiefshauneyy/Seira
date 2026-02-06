@@ -15,7 +15,7 @@ from telegram.ext import (
 )
 import seira_core as core
 
-# 1. FIX: Absolute Pathing for Daemon Stability
+# Absolute Pathing
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 load_dotenv(os.path.join(BASE_DIR, ".env"))
 
@@ -23,7 +23,7 @@ TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
 ALLOWED_USER_ID = os.getenv("TELEGRAM_ALLOWED_USER_ID", "").strip()
 TIMEZONE = pytz.timezone("America/Chicago")
 
-# Logging setup for /tmp/seira.log
+# Logging
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO
 )
@@ -36,22 +36,33 @@ def is_allowed(update: Update) -> bool:
 # --- SCHEDULED JOBS ---
 
 async def send_scheduled_briefing(context: ContextTypes.DEFAULT_TYPE):
-    """Triggered by the JobQueue for Warfare and Astrophysics."""
     job = context.job
     memory = core.load_memory()
     chat_id = memory.get("profile", {}).get("telegram_chat_id")
     
     if not chat_id:
-        logging.error("No chat_id found in memory. Cannot send briefing.")
+        logging.error("No chat_id found in memory.")
         return
 
-    # Determine briefing type from job name
     topic = "warfare" if "warfare" in job.name else "astrophysics"
-    
-    # Brain logic: seira_core handles the anti-repeat and content generation
     briefing_content = core.get_scheduled_lesson(topic, memory)
-    
     await context.bot.send_message(chat_id=chat_id, text=briefing_content)
+
+# --- NEW: TEST COMMAND ---
+
+async def trigger_war_test(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Manually triggers a warfare briefing for testing."""
+    if not is_allowed(update): return
+    
+    await update.message.reply_text("Copy that, Operator. Forcing a Warfare Briefing now...")
+    
+    memory = core.load_memory()
+    lesson = core.get_scheduled_lesson("warfare", memory)
+    
+    await context.bot.send_message(
+        chat_id=update.effective_chat.id,
+        text=lesson
+    )
 
 # --- COMMANDS ---
 
@@ -60,24 +71,12 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     mem = core.load_memory()
     mem.setdefault("profile", {})["telegram_chat_id"] = update.effective_chat.id
     core.save_memory(mem)
-    await update.message.reply_text(f"{core.AGENT_NAME} online. Scheduled briefings active (08:00, 12:00, 19:00).")
+    await update.message.reply_text(f"{core.AGENT_NAME} online. Scheduled briefings active.")
 
 async def cmd_memory(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_allowed(update): return
     memory = core.load_memory()
-    await update.message.reply_text(f"```json\n{core.memory_pretty(memory)}\n```", parse_mode="Markdown")
-    async def trigger_war_test(update, context):
-    """Manually triggers a warfare briefing for testing."""
-    from seira_core import get_scheduled_lesson, load_memory
-    await update.message.reply_text("Copy that, Operator. Forcing a Warfare Briefing now...")
-    
-    memory = load_memory()
-    lesson = get_scheduled_lesson("warfare", memory)
-    
-    await context.bot.send_message(
-        chat_id=update.effective_chat.id,
-        text=lesson
-    )
+    await update.message.reply_text(f"```json\n{json.dumps(memory, indent=2)}\n```", parse_mode="Markdown")
 
 async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_allowed(update): return
@@ -90,38 +89,31 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     system = (
-        f"You are {core.AGENT_NAME}, Shaun's personal stateful AI companion. "
-        "You are an expert in USMC scout sniper discipline and cloud architecture. "
-        "Maintain military bearing: concise, lethal, and helpful."
+        f"You are {core.AGENT_NAME}, Shaun's personal AI companion. "
+        "Maintain military bearing: concise and lethal."
     )
     user_msg = f"Memory Summary:\n{core.memory_summary(memory)}\n\nUser: {text}"
     await update.message.reply_text(core.llm(system, user_msg))
 
-# --- MAIN RUNNER ---
+# --- MAIN ---
 
 def main():
-    if not TOKEN:
-        print("Error: No TELEGRAM_BOT_TOKEN found.")
-        return
+    if not TOKEN: return
 
-    # Build application with JobQueue support
     app = Application.builder().token(TOKEN).build()
     job_queue = app.job_queue
 
-    # Schedule Briefings (Central Time)
-    # 08:00 Warfare
+    # Schedule Briefings
     job_queue.run_daily(send_scheduled_briefing, time(8, 0, tzinfo=TIMEZONE), name="daily_warfare")
-    # 12:00 Astrophysics
     job_queue.run_daily(send_scheduled_briefing, time(12, 0, tzinfo=TIMEZONE), name="noon_astrophysics")
-    # 19:00 Astrophysics
     job_queue.run_daily(send_scheduled_briefing, time(19, 0, tzinfo=TIMEZONE), name="evening_astrophysics")
 
     # Handlers
-    app.add_handler(CommandHandler("test_war", trigger_war_test))
     app.add_handler(CommandHandler("start", cmd_start))
+    app.add_handler(CommandHandler("test_war", trigger_war_test))
     app.add_handler(CommandHandler("memory", cmd_memory))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_message))
-    app.add_handler(MessageHandler(filters.VOICE, core.on_voice)) # Assuming logic moved to core or kept
+    app.add_handler(MessageHandler(filters.VOICE, core.on_voice))
 
     print(f"--- {core.AGENT_NAME} DAEMON ACTIVE ---")
     app.run_polling()
