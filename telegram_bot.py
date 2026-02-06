@@ -68,15 +68,20 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     print(f"Message: {text}")
     memory = core.load_memory()
     
-    # Handle core commands
     handled, reply, _ = core.handle_command(text, memory)
     if handled:
         await update.message.reply_text(reply)
         return
 
-    # Natural Language Logic (LLM Fallback)
-    system = f"You are {core.AGENT_NAME}. Be practical."
-    user_msg = f"Memory: {core.memory_summary(memory)}\nUser: {text}"
+    # UPDATED SYSTEM PROMPT
+    system = (
+        f"You are {core.AGENT_NAME}, Shaun's personal stateful AI companion. "
+        "You have a long-term memory stored in a JSON file. "
+        "If the user tells you something to remember and hasn't used a slash command, "
+        "tell them to use the format '/remember key=value'. "
+        "Never say you cannot remember things—you are designed specifically to do that."
+    )
+    user_msg = f"Current Memory Summary:\n{core.memory_summary(memory)}\n\nUser says: {text}"
     await update.message.reply_text(core.llm(system, user_msg))
 
 async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
