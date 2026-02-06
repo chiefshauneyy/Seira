@@ -120,24 +120,23 @@ def main():
     if not TOKEN:
         raise SystemExit("TELEGRAM_BOT_TOKEN missing in .env")
 
+    # Python 3.14 compatibility: ensure event loop exists
+    try:
+        asyncio.get_event_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+
     app = Application.builder().token(TOKEN).build()
+
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("help", cmd_help))
     app.add_handler(CommandHandler("whoami", cmd_whoami))
-
     app.add_handler(CallbackQueryHandler(on_callback))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_message))
 
     print(f"{core.AGENT_NAME} Telegram bot is running...")
-
-# Python 3.14: ensure an event loop exists in main thread
-try:
-    asyncio.get_running_loop()
-except RuntimeError:
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-
-app.run_polling()
+    app.run_polling()
 
 if __name__ == "__main__":
     main()
