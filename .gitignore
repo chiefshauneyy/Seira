@@ -1,0 +1,16 @@
+# secrets
+.env
+
+# local data
+memory.json
+*.log
+
+# python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# OS noise
+.DS_Store
+Thumbs.db
