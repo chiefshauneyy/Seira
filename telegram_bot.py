@@ -19,7 +19,7 @@ import seira_core as core
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 load_dotenv(os.path.join(BASE_DIR, ".env"))
 
-TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
+TOKEN = os.getenv("8568467650:AAHnleqe6B1GTXc1ZmQvb9VTKdOMLOgccBk")
 ALLOWED_USER_ID = os.getenv("TELEGRAM_ALLOWED_USER_ID", "").strip()
 TIMEZONE = pytz.timezone("America/Chicago")
 
