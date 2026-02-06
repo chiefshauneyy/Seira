@@ -1,6 +1,7 @@
 import os
 import json
 import re
+import io
 import logging
 from datetime import datetime
 from typing import Any, Dict, Optional, Tuple, List
@@ -59,9 +60,10 @@ def load_memory() -> Dict[str, Any]:
     try:
         with open(MEMORY_PATH, "r", encoding="utf-8") as f:
             data = json.load(f)
-        # Ensure new keys (like history) exist in old memory files
         base = _default_memory()
-        if "history" not in data: data["history"] = base["history"]
+        # Ensure structural integrity for history tracking
+        if "history" not in data: 
+            data["history"] = base["history"]
         return data
     except Exception:
         return _default_memory()
@@ -79,49 +81,67 @@ def llm(system: str, user: str) -> str:
     )
     return resp.choices[0].message.content.strip()
 
-# --- THE LESSON ENGINE (Anti-Repeat Logic) ---
+# --- INTERFACE FUNCTIONS ---
+
+async def on_voice(update, context):
+    """Downloads voice note, transcribes with Whisper, and routes to on_message logic."""
+    from telegram_bot import on_message 
+    
+    logging.info("Voice note received. Transcribing...")
+    voice_file = await update.message.voice.get_file()
+    audio_data = io.BytesIO()
+    await voice_file.download_to_memory(audio_data)
+    audio_data.seek(0)
+    audio_data.name = "voice.ogg"
+
+    from openai import OpenAI
+    client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
+    transcript = client.audio.transcriptions.create(model="whisper-1", file=audio_data).text
+    
+    logging.info(f"Transcript: {transcript}")
+    update.message.text = transcript
+    await on_message(update, context)
+
+# --- THE LESSON ENGINE ---
 
 def get_scheduled_lesson(topic: str, memory: Dict[str, Any]) -> str:
-    """Generates a proactive briefing while checking memory to avoid repetition."""
     history = memory.get("history", {}).get(topic, [])
-    
-    # Construct the Avoidance List
     avoidance_str = ", ".join(history[-10:]) if history else "None yet."
     
     if topic == "warfare":
-        system = f"You are {AGENT_NAME}. Provide a briefing on a specific, obscure moment in warfare history."
-        user = f"Operator Background: {memory['profile']['background']}. Do NOT talk about these recently covered topics: {avoidance_str}. Focus on tactics or snipers if possible."
-    else: # astrophysics
+        system = f"You are {AGENT_NAME}. Provide a briefing on an obscure moment in warfare history."
+        user = f"Operator Background: {memory['profile']['background']}. Avoid these: {avoidance_str}. Focus on tactics/snipers."
+    else:
         system = f"You are {AGENT_NAME}. Provide a briefing on a complex astrophysics concept."
-        user = f"Do NOT talk about these recently covered topics: {avoidance_str}. Explain like I am a professional who values precision."
+        user = f"Avoid these: {avoidance_str}. Explain with professional precision."
 
     content = llm(system, user)
-    
-    # Save a 'gist' to memory to prevent future repeats
-    gist_prompt = f"Summarize this lesson in 3-5 words for a memory log:\n{content}"
-    gist = llm("You are a summarizer.", gist_prompt)
+    gist = llm("Summarize this lesson in 3-5 words for a log:", content)
     
     memory["history"].setdefault(topic, []).append(f"{_now_iso()}: {gist}")
     save_memory(memory)
-    
     return f"🚀 {topic.upper()} BRIEFING:\n\n{content}"
 
-# --- HANDLERS ---
+# --- COMMAND HANDLERS ---
 
 def handle_command(text: str, memory: Dict[str, Any]) -> Tuple[bool, str, Dict[str, Any]]:
     cmd = text.strip()
     if cmd.lower() == "/help": return True, HELP_TEXT, memory
-    if cmd.lower() == "/memory": 
-        # Clean view for Telegram
-        return True, json.dumps(memory, indent=2), memory
+    if cmd.lower() == "/memory": return True, json.dumps(memory, indent=2), memory
     
     m_rem = REMEMBER_RE.match(cmd)
     if m_rem:
         key, val = m_rem.group(1).strip(), m_rem.group(2).strip()
-        # logic to set dotted keys omitted for brevity, but keep your memory_set if needed
         memory["preferences"][key] = val
         save_memory(memory)
         return True, f"✅ Updated {key}.", memory
+
+    m_note = NOTE_RE.match(cmd)
+    if m_note:
+        note_text = m_note.group(1).strip()
+        memory.setdefault("notes", []).append({"ts": _now_iso(), "text": note_text})
+        save_memory(memory)
+        return True, "📝 Note logged.", memory
 
     return False, "", memory
 
