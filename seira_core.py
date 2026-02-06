@@ -3,7 +3,6 @@ import json
 import re
 from datetime import datetime, timedelta
 from typing import Any, Dict, Optional, Tuple, List
-
 from dotenv import load_dotenv
 
 load_dotenv(dotenv_path=".env")
@@ -11,7 +10,9 @@ load_dotenv(dotenv_path=".env")
 AGENT_NAME = os.getenv("AGENT_NAME", "Seira")
 MEMORY_PATH = os.getenv("MEMORY_PATH", "memory.json")
 
+# Regex for command parsing
 REMEMBER_RE = re.compile(r"^/remember\s+([^=\s]+)\s*=\s*(.+)\s*$", re.IGNORECASE)
+NOTE_RE = re.compile(r"^/note\s+(.+)\s*$", re.IGNORECASE)
 
 HELP_TEXT = f"""
 {AGENT_NAME} Operator Commands:
@@ -61,7 +62,6 @@ def load_memory() -> Dict[str, Any]:
     try:
         with open(MEMORY_PATH, "r", encoding="utf-8") as f:
             data = json.load(f)
-        # Ensure deep merge of default keys if missing
         base = _default_memory()
         for k, v in base.items():
             if k not in data:
@@ -109,34 +109,29 @@ def llm(system: str, user: str) -> str:
     return resp.choices[0].message.content.strip()
 
 def handle_command(text: str, memory: Dict[str, Any]) -> Tuple[bool, str, Dict[str, Any]]:
-    cmd = text.strip().lower()
+    cmd = text.strip()
+    if cmd.lower() == "/help": return True, HELP_TEXT, memory
+    if cmd.lower() == "/memory": return True, memory_pretty(memory), memory
     
-    if cmd == "/today":
-        # Get fitness data
-        checkins = memory.get("checkins", [])
-        last = checkins[-1] if checkins else {"sleep": 7, "stress": 5}
-        r = compute_readiness(last) # Uses the logic we defined earlier
-        
-        # Get Work/Identity Context
-        p = memory.get("profile", {})
-        w = memory.get("work", {})
-        
-        brief = [
-            f"⚔️ **Operator Brief: {datetime.now().strftime('%Y-%m-%d')}**",
-            f"Status: {r['label']} ({r['score']}/100)",
-            f"\n**Physical:**",
-            f"- Recommendation: {r['recommendation']}",
-            f"- Goal: {memory['fitness']['program']}",
-            f"\n**Operations:**",
-            f"- Project Alpha: {w['projects'][0]} (CCTAT)",
-            f"- Project Beta: {w['projects'][1]} (n8n Automation)",
-            f"\n**Rule of Engagement:** {w['rules']}"
-        ]
-        return True, "\n".join(brief), memory
+    m_rem = REMEMBER_RE.match(cmd)
+    if m_rem:
+        key, val = m_rem.group(1).strip(), m_rem.group(2).strip()
+        memory_set(memory, key, val)
+        save_memory(memory)
+        return True, f"✅ Updated: {key} is now {val}.", memory
+
+    m_note = NOTE_RE.match(cmd)
+    if m_note:
+        note_text = m_note.group(1).strip()
+        memory.setdefault("notes", []).append({"ts": _now_iso(), "text": note_text})
+        save_memory(memory)
+        return True, f"📝 Note logged to memory.", memory
+
+    return False, "", memory
 
 def execute_action(memory: Dict[str, Any], action_id: str) -> str:
     pending = memory.get("pending_actions", {})
     if action_id not in pending: return "Action not found."
     del pending[action_id]
     save_memory(memory)
-    return "Action approved and executed."
+    return "Action approved."
