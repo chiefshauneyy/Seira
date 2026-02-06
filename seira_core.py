@@ -1,7 +1,7 @@
 import os
 import json
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Dict, Optional, Tuple, List
 
 from dotenv import load_dotenv
@@ -10,6 +10,7 @@ load_dotenv(dotenv_path=".env")
 
 AGENT_NAME = os.getenv("AGENT_NAME", "Seira")
 MEMORY_PATH = os.getenv("MEMORY_PATH", "memory.json")
+
 
 REMEMBER_RE = re.compile(r"^/remember\s+([^=\s]+)\s*=\s*(.+)\s*$", re.IGNORECASE)
 FORGET_RE = re.compile(r"^/forget\s+([^\s]+)\s*$", re.IGNORECASE)
@@ -31,6 +32,9 @@ HELP_TEXT = f"""
 Telegram approval quick actions:
   note: <text>
   checkin: sleep=... soreness=... mood=... stress=... [hrv=.. rhr=..]
+  remind: in 30m <text>
+  remind: tomorrow 09:00 <text>
+  remind: 2026-02-07 09:00 <text>
 """.strip()
 
 
@@ -39,13 +43,16 @@ def _now_iso() -> str:
 
 def _default_memory() -> Dict[str, Any]:
     return {
-        "profile": {},
+        "profile": {
+            "telegram_chat_id": None,  # set by bot on /start
+        },
         "preferences": {},
         "rules": {"execution_mode": "approval"},
         "fitness": {},
         "notes": [],
         "checkins": [],
-        "pending_actions": {}
+        "reminders": [],       # list of {id, ts_created, due, text, sent}
+        "pending_actions": {}  # action_id -> {ts, action:{type, summary, payload}}
     }
 
 def load_memory() -> Dict[str, Any]:
@@ -57,6 +64,10 @@ def load_memory() -> Dict[str, Any]:
         base = _default_memory()
         for k, v in base.items():
             data.setdefault(k, v)
+        # ensure nested keys
+        data.setdefault("profile", {}).setdefault("telegram_chat_id", None)
+        data.setdefault("reminders", [])
+        data.setdefault("pending_actions", {})
         return data
     except Exception:
         return _default_memory()
@@ -89,6 +100,10 @@ def memory_delete(memory: Dict[str, Any], dotted_key: str) -> bool:
 def memory_pretty(memory: Dict[str, Any]) -> str:
     return json.dumps(memory, indent=2, ensure_ascii=False)
 
+
+# -------------------------
+# Fitness readiness
+# -------------------------
 
 def clamp(x: float, lo: float, hi: float) -> float:
     return max(lo, min(hi, x))
@@ -159,6 +174,10 @@ def compute_readiness(checkin: Dict[str, Any], prev: Optional[Dict[str, Any]] = 
     return {"score": score, "label": label, "reasons": reasons, "recommendation": rec}
 
 
+# -------------------------
+# LLM (OpenAI-only)
+# -------------------------
+
 def have(key: str) -> bool:
     return bool(os.getenv(key, "").strip())
 
@@ -181,6 +200,10 @@ def llm(system: str, user: str) -> str:
     return run_openai(system, user)
 
 
+# -------------------------
+# Helpers
+# -------------------------
+
 def parse_kv_pairs(s: str) -> Dict[str, Any]:
     out: Dict[str, Any] = {}
     for t in s.strip().split():
@@ -195,6 +218,61 @@ def parse_kv_pairs(s: str) -> Dict[str, Any]:
             out[k] = v
     return out
 
+def parse_remind_spec(spec: str) -> Tuple[Optional[datetime], str]:
+    """
+    Accepts:
+      - "in 30m <text>", "in 2h <text>", "in 1d <text>"
+      - "tomorrow HH:MM <text>"
+      - "HH:MM <text>" (today)
+      - "YYYY-MM-DD HH:MM <text>"
+    Returns (due_dt, text). due_dt is local naive datetime.
+    """
+    s = spec.strip()
+
+    # in 30m / in 2h / in 1d
+    m = re.match(r"^in\s+(\d+)\s*([mhd])\s+(.+)$", s, re.IGNORECASE)
+    if m:
+        n = int(m.group(1))
+        unit = m.group(2).lower()
+        text = m.group(3).strip()
+        delta = {"m": timedelta(minutes=n), "h": timedelta(hours=n), "d": timedelta(days=n)}[unit]
+        return datetime.now() + delta, text
+
+    # tomorrow HH:MM text
+    m = re.match(r"^tomorrow\s+(\d{1,2}):(\d{2})\s+(.+)$", s, re.IGNORECASE)
+    if m:
+        hh = int(m.group(1)); mm = int(m.group(2))
+        text = m.group(3).strip()
+        due = datetime.now().replace(hour=hh, minute=mm, second=0, microsecond=0) + timedelta(days=1)
+        return due, text
+
+    # YYYY-MM-DD HH:MM text
+    m = re.match(r"^(\d{4}-\d{2}-\d{2})\s+(\d{1,2}):(\d{2})\s+(.+)$", s)
+    if m:
+        date_s = m.group(1)
+        hh = int(m.group(2)); mm = int(m.group(3))
+        text = m.group(4).strip()
+        y, mo, d = [int(x) for x in date_s.split("-")]
+        due = datetime(y, mo, d, hh, mm, 0)
+        return due, text
+
+    # HH:MM text (today)
+    m = re.match(r"^(\d{1,2}):(\d{2})\s+(.+)$", s)
+    if m:
+        hh = int(m.group(1)); mm = int(m.group(2))
+        text = m.group(3).strip()
+        due = datetime.now().replace(hour=hh, minute=mm, second=0, microsecond=0)
+        # if time already passed today, assume tomorrow
+        if due <= datetime.now():
+            due = due + timedelta(days=1)
+        return due, text
+
+    return None, ""
+
+
+# -------------------------
+# CLI Commands (terminal use)
+# -------------------------
 
 def handle_command(text: str, memory: Dict[str, Any]) -> Tuple[bool, str, Dict[str, Any]]:
     cmd = text.strip()
@@ -272,6 +350,10 @@ def handle_command(text: str, memory: Dict[str, Any]) -> Tuple[bool, str, Dict[s
     return False, "", memory
 
 
+# -------------------------
+# Approval actions
+# -------------------------
+
 def save_pending_action(memory: Dict[str, Any], action: Dict[str, Any]) -> str:
     action_id = f"act_{int(datetime.now().timestamp())}_{len(memory.get('pending_actions', {})) + 1}"
     memory.setdefault("pending_actions", {})
@@ -306,5 +388,23 @@ def execute_action(memory: Dict[str, Any], action_id: str) -> str:
         del pending[action_id]
         save_memory(memory)
         return "Approved: Check-in logged."
+
+    if a_type == "set_reminder":
+        due = str(payload.get("due", "")).strip()
+        text = str(payload.get("text", "")).strip()
+        if not due or not text:
+            return "Invalid reminder payload."
+        memory.setdefault("reminders", [])
+        rid = f"rem_{int(datetime.now().timestamp())}_{len(memory['reminders']) + 1}"
+        memory["reminders"].append({
+            "id": rid,
+            "ts_created": _now_iso(),
+            "due": due,
+            "text": text,
+            "sent": False,
+        })
+        del pending[action_id]
+        save_memory(memory)
+        return f"Approved: Reminder set for {due}."
 
     return f"Action type '{a_type}' not supported yet."
