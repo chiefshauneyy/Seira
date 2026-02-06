@@ -66,6 +66,18 @@ async def cmd_memory(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_allowed(update): return
     memory = core.load_memory()
     await update.message.reply_text(f"```json\n{core.memory_pretty(memory)}\n```", parse_mode="Markdown")
+    async def trigger_war_test(update, context):
+    """Manually triggers a warfare briefing for testing."""
+    from seira_core import get_scheduled_lesson, load_memory
+    await update.message.reply_text("Copy that, Operator. Forcing a Warfare Briefing now...")
+    
+    memory = load_memory()
+    lesson = get_scheduled_lesson("warfare", memory)
+    
+    await context.bot.send_message(
+        chat_id=update.effective_chat.id,
+        text=lesson
+    )
 
 async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_allowed(update): return
@@ -105,6 +117,7 @@ def main():
     job_queue.run_daily(send_scheduled_briefing, time(19, 0, tzinfo=TIMEZONE), name="evening_astrophysics")
 
     # Handlers
+    app.add_handler(CommandHandler("test_war", trigger_war_test))
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("memory", cmd_memory))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_message))
