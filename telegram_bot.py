@@ -98,7 +98,10 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # --- MAIN ---
 
 def main():
-    if not TOKEN: return
+    print(f"DEBUG: Attempting to connect with Token: {TOKEN[:5]}...{TOKEN[-5:]}")
+    if not TOKEN: 
+        print("CRITICAL ERROR: No Telegram Token found!")
+        return
 
     app = Application.builder().token(TOKEN).build()
     job_queue = app.job_queue
