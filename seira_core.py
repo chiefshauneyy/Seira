@@ -40,7 +40,7 @@ Telegram approval quick actions:
 def memory_pretty(memory: Dict[str, Any]) -> str:
     return json.dumps(memory, indent=2, ensure_ascii=False)
 
-def memory_summary(memory: Dict[str, Any]) -> str:
+ddef memory_summary(memory: Dict[str, Any]) -> str:
     """Returns a readable summary to avoid Telegram character limits."""
     profile = memory.get("profile", {})
     notes_count = len(memory.get("notes", []))
@@ -49,15 +49,10 @@ def memory_summary(memory: Dict[str, Any]) -> str:
     
     summary = [
         f"🧠 {AGENT_NAME} Memory Status",
-        f"👤 User: {profile.get('telegram_chat_id', 'Unknown')}",
         f"📝 Notes: {notes_count}",
         f"📊 Check-ins: {checkins_count}",
         f"⏰ Active Reminders: {len(reminders)}",
-        "\nLast 3 Notes:"
     ]
-    for n in memory.get("notes", [])[-3:]:
-        summary.append(f"- {n['ts'][:10]}: {n['text'][:40]}...")
-        
     return "\n".join(summary)
 
 

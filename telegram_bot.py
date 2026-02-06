@@ -23,14 +23,25 @@ ALLOWED_USER_ID = os.getenv("TELEGRAM_ALLOWED_USER_ID", "").strip()
 CHECKIN_HOUR = int(os.getenv("CHECKIN_HOUR", "9"))
 CHECKIN_MINUTE = int(os.getenv("CHECKIN_MINUTE", "0"))
 
-
 def is_allowed(update: Update) -> bool:
-    if not ALLOWED_USER_ID:
-        return True
-    try:
-        return str(update.effective_user.id) == str(ALLOWED_USER_ID)
-    except Exception:
+    user = update.effective_user
+    if not user:
         return False
+    
+    current_id = str(user.id)
+    # DEBUG PRINT: This will show up in your Mac terminal
+    print(f"--- AUTH CHECK ---")
+    print(f"Incoming ID: {current_id}")
+    print(f"Allowed ID : {ALLOWED_USER_ID}")
+    
+    if not ALLOWED_USER_ID:
+        print("WARNING: TELEGRAM_ALLOWED_USER_ID is empty in .env. Allowing all users.")
+        return True
+        
+    allowed = current_id == ALLOWED_USER_ID
+    print(f"Access Granted: {allowed}")
+    print(f"------------------")
+    return allowed
 
 
 def _approval_keyboard(action_id: str) -> InlineKeyboardMarkup:
@@ -43,6 +54,7 @@ def _approval_keyboard(action_id: str) -> InlineKeyboardMarkup:
 
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    print("Command Triggered: /start")
     if not is_allowed(update):
         return
     mem = core.load_memory()
@@ -53,21 +65,25 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    print("Command Triggered: /help")
     if not is_allowed(update):
         return
     await update.message.reply_text(core.HELP_TEXT)
 
 async def cmd_memory(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    print("Command Triggered: /memory")
     if not is_allowed(update):
         return
     memory = core.load_memory()
-    # Attempt full print, fallback to summary if too long
     text = core.memory_pretty(memory)
+    # Telegram message limit is 4096. If it's too big, send summary.
     if len(text) > 4000:
         text = core.memory_summary(memory) + "\n\n(Full JSON too large for Telegram)"
-    await update.message.reply_text(f"```json\n{text}\n```", parse_mode="Markdown")
+    
+    await update.message.reply_text(f"```json\n{text}\n```", parse_mode="MarkdownV2")
 
 async def cmd_today(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    print("Command Triggered: /today")
     if not is_allowed(update):
         return
     memory = core.load_memory()
@@ -75,9 +91,9 @@ async def cmd_today(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(reply)
 
 async def cmd_whoami(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not update.message:
-        return
-    await update.message.reply_text(f"Your Telegram user id: {update.effective_user.id}")
+    user_id = update.effective_user.id
+    print(f"Command Triggered: /whoami (User ID: {user_id})")
+    await update.message.reply_text(f"Your Telegram user id: {user_id}")
 
 
 async def reminder_tick(context: ContextTypes.DEFAULT_TYPE):
@@ -122,9 +138,10 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     text = update.message.text.strip()
+    print(f"Message Received: {text}")
     memory = core.load_memory()
 
-    # Route slash commands to core first
+    # Route slash commands to core first (fallback)
     if text.startswith("/"):
         handled, reply, _ = core.handle_command(text, memory)
         if handled:
@@ -132,7 +149,6 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
     lower = text.lower()
-    # Approval logic for natural language inputs
     if lower.startswith("note:"):
         note_text = text.split(":", 1)[1].strip()
         action = {"type": "add_note", "summary": f"Add note: {note_text}", "payload": {"text": note_text}}
@@ -191,25 +207,29 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 def main():
     if not TOKEN:
-        raise SystemExit("TELEGRAM_BOT_TOKEN missing")
+        print("CRITICAL ERROR: TELEGRAM_BOT_TOKEN missing in .env")
+        return
 
+    print("--- SEIRA STARTUP ---")
+    print(f"Target User ID: {ALLOWED_USER_ID if ALLOWED_USER_ID else 'ALL'}")
+    
     app = Application.builder().token(TOKEN).build()
 
-    # Register Command Handlers
+    # Commands
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("help", cmd_help))
     app.add_handler(CommandHandler("memory", cmd_memory))
     app.add_handler(CommandHandler("today", cmd_today))
     app.add_handler(CommandHandler("whoami", cmd_whoami))
 
-    # Callback and Message Handlers
+    # General Handlers
     app.add_handler(CallbackQueryHandler(on_callback))
-    # Remove the ~filters.COMMAND so on_message can act as a fallback for core commands
-    app.add_handler(MessageHandler(filters.TEXT, on_message))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_message))
 
+    # Background
     app.job_queue.run_repeating(reminder_tick, interval=30, first=5)
     
-    print(f"{core.AGENT_NAME} Telegram bot is running...")
+    print(f"{core.AGENT_NAME} Telegram bot is polling...")
     app.run_polling()
 
 if __name__ == "__main__":
