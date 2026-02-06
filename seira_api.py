@@ -1,14 +1,14 @@
 import os
 from fastapi import FastAPI, Request
-from fastapi.middleware.proxy_headers import ProxyHeadersMiddleware
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 import seira_core as core
 from dotenv import load_dotenv
 
 load_dotenv()
 app = FastAPI()
 
-# This tells FastAPI to trust the headers ngrok sends
-app.add_middleware(ProxyHeadersMiddleware, trusted_hosts="*")
+# Standard middleware to ensure the app trusts the tunnel's host
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=["*"])
 
 @app.get("/")
 def read_root():
@@ -28,5 +28,5 @@ async def alexa_hook(request: Request):
 
 if __name__ == "__main__":
     import uvicorn
-    # 0.0.0.0 is essential for the tunnel to see the app
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    # Use proxy_headers=True here instead of a manual middleware import
+    uvicorn.run(app, host="0.0.0.0", port=8000, proxy_headers=True, forwarded_allow_ips="*")
