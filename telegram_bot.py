@@ -21,7 +21,7 @@ import seira_core as core
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 load_dotenv(os.path.join(BASE_DIR, ".env"))
 
-TOKEN = os.getenv("TELEGRAM_BOT_TOKEN") or "8568467650:AAHnleqe6B1GTXc1ZmQvb9VTKdOMLOgccBk"
+TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 ALLOWED_USER_ID = os.getenv("TELEGRAM_ALLOWED_USER_ID", "7065094951").strip()
 TIMEZONE = pytz.timezone("America/Chicago")
 
@@ -56,7 +56,6 @@ def purge_old_assets(days=1):
 # --- SCHEDULED JOBS & TEST COMMANDS ---
 
 async def send_scheduled_briefing(context: ContextTypes.DEFAULT_TYPE):
-    # Trigger asset cleanup before generating new content
     purge_old_assets(days=1)
     
     job = context.job
@@ -67,42 +66,41 @@ async def send_scheduled_briefing(context: ContextTypes.DEFAULT_TYPE):
         logging.error("No chat_id found in memory.")
         return
 
-    topic = "warfare" if "warfare" in job.name else "astrophysics"
+    # Dynamically determine topic from job name
+    job_name = job.name.lower()
+    if "warfare" in job_name:
+        topic = "warfare"
+    elif "astro" in job_name:
+        topic = "astrophysics"
+    elif "cyber" in job_name:
+        topic = "cybersecurity"
+    elif "quantum" in job_name:
+        topic = "quantum computing"
+    else:
+        topic = "general intelligence"
     
     try:
-        # 1. Get raw lesson
         raw_content = core.get_scheduled_lesson(topic, memory)
         
-        # 2. Strict Academic Formatter
         formatter_system = (
             "You are a Tactical Intelligence Officer. Rewrite the text into a cold, "
             "academic summary. No emojis. Max 800 characters. "
             "Use bold headers and 3-4 bullet points. End with 3 hashtags."
         )
+        # Note: Ensure core.llm exists in your seira_core.py
         briefing_content = core.llm(formatter_system, raw_content)
         
-        # Safety trim for Telegram API limits
         if len(briefing_content) > 1000:
             briefing_content = briefing_content[:990] + "..."
         
-        # 3. Dune/Historical "Vibe" Overrides
+        # Visual Prompts based on topic
         if topic == "warfare":
-            visual_prompt = (
-                "Cinematic 35mm film photography, 1940s grain, black and white, "
-                "moody shadows, raw historical realism, soldiers in distance. "
-                "NO TEXT, NO LABELS, NO MODERN GRAPHICS."
-            )
+            visual_prompt = "Cinematic 35mm film photography, 1940s grain, black and white, raw historical realism."
+        elif "cyber" in topic or "quantum" in topic:
+            visual_prompt = "Cyberpunk brutalist terminal, glowing green code on dark glass, highly detailed, 8k."
         else:
-            visual_prompt = (
-                "Cinematic wide shot, Dune 2021 aesthetic, a massive brutalist monolith "
-                "floating above a dusty, desolate orange planet, deep teal space background, "
-                "harsh sunlight, realistic atmosphere, Sardaukar color palette, 8k. "
-                "STRICT RULES: NO TEXT, NO LABELS, NO LETTERS, NO NUMBERS, NO INFOGRAPHICS."
-            )
+            visual_prompt = "Cinematic wide shot, Dune 2021 aesthetic, massive brutalist monolith, harsh sunlight."
         
-        print(f"DEBUG: Art Director ({topic}) Force-Prompt: {visual_prompt}")
-
-        # 4. Image Generation
         pipeline = ImagePipeline()
         local_path = pipeline.generate_free_image(visual_prompt)
         
@@ -121,9 +119,19 @@ async def send_scheduled_briefing(context: ContextTypes.DEFAULT_TYPE):
         logging.error(f"Briefing generation error: {e}")
         await context.bot.send_message(chat_id=chat_id, text=f"⚠️ Synthesis failed: {str(e)}")
 
+# --- MANUAL TEST HANDLERS ---
+
+async def test_intel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Manual trigger for full intelligence gathering."""
+    if not is_allowed(update): return
+    await update.message.reply_text("📡 Intercepting global signals... stand by.")
+    memory = core.load_memory()
+    report = core.get_scheduled_lesson("Global Intelligence", memory)
+    await update.message.reply_text(report, parse_mode='Markdown')
+
 async def trigger_war_test(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_allowed(update): return
-    await update.message.reply_text("Copy. Initializing Warfare Briefing (IG Optimized)...")
+    await update.message.reply_text("Copy. Initializing Warfare Briefing...")
     class MockJob:
         def __init__(self, name): self.name = name
     context.job = MockJob("daily_warfare")
@@ -131,7 +139,7 @@ async def trigger_war_test(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def trigger_astro_test(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_allowed(update): return
-    await update.message.reply_text("Copy. Initializing Astrophysics Briefing (IG Optimized)...")
+    await update.message.reply_text("Copy. Initializing Astrophysics Briefing...")
     class MockJob:
         def __init__(self, name): self.name = name
     context.job = MockJob("daily_astrophysics")
@@ -140,32 +148,9 @@ async def trigger_astro_test(update: Update, context: ContextTypes.DEFAULT_TYPE)
 # --- TELEGRAM COMMAND HANDLERS ---
 
 async def cmd_ping(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Heartbeat command to check system status and next briefing."""
     if not is_allowed(update): return
-    
     now = datetime.now(TIMEZONE)
-    current_time = now.strftime("%H:%M:%S")
-    
-    # Define briefing times
-    times = [time(8, 0), time(12, 0), time(19, 0)]
-    next_brief = "Scheduled for tomorrow"
-    
-    for t in times:
-        brief_time = TIMEZONE.localize(datetime.combine(now.date(), t))
-        if brief_time > now:
-            diff = brief_time - now
-            hours, remainder = divmod(diff.seconds, 3600)
-            minutes, _ = divmod(remainder, 60)
-            next_brief = f"Next briefing in {hours}h {minutes}m"
-            break
-
-    status_msg = (
-        f"🛰️ **{core.AGENT_NAME} HEARTBEAT**\n"
-        f"--- Status: Operational ---\n"
-        f"System Time: {current_time}\n"
-        f"Timing: {next_brief}\n"
-        f"Memory: Secure"
-    )
+    status_msg = f"🛰️ **{core.AGENT_NAME} HEARTBEAT**\nStatus: Operational\nTime: {now.strftime('%H:%M:%S')}"
     await update.message.reply_text(status_msg, parse_mode="Markdown")
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -173,61 +158,34 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     mem = core.load_memory()
     mem.setdefault("profile", {})["telegram_chat_id"] = update.effective_chat.id
     core.save_memory(mem)
-    await update.message.reply_text(f"{core.AGENT_NAME} online. Scheduled briefings active.")
-
-async def cmd_generate(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_allowed(update): return
-    prompt = " ".join(context.args)
-    if not prompt:
-        await update.message.reply_text("Usage: /generate [prompt]")
-        return
-    await update.message.reply_text(f"🎨 Synthesizing: '{prompt}'...")
-    try:
-        pipeline = ImagePipeline()
-        path = pipeline.generate_free_image(prompt)
-        if path:
-            with open(path, 'rb') as f:
-                await context.bot.send_photo(chat_id=update.effective_chat.id, photo=f)
-    except Exception as e:
-        await update.message.reply_text(f"Error: {e}")
+    await update.message.reply_text(f"{core.AGENT_NAME} online. Pulse established.")
 
 async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_allowed(update): return
-    
     text = update.message.text.strip()
-    memory = core.load_memory()
-    
-    # Check if this is a reply to a briefing
-    if update.message.reply_to_message:
-        original_text = update.message.reply_to_message.caption or update.message.reply_to_message.text
-        system = f"You are {core.AGENT_NAME}. Deep dive into this specific briefing topic: {original_text}"
-        await update.message.reply_text(core.llm(system, f"Analysis Request: {text}"))
-        return
-
-    # Standard command handling
-    handled, reply, _ = core.handle_command(text, memory)
-    if handled:
-        await update.message.reply_text(reply)
-        return
-        
     system = f"You are {core.AGENT_NAME}, Shaun's personal AI companion. Military bearing."
     await update.message.reply_text(core.llm(system, f"User: {text}"))
 
 async def main():
     app = Application.builder().token(TOKEN).build()
     
-    # Schedule
+    # --- JOB SCHEDULER SETUP ---
     jq = app.job_queue
+    # 08:00 Warfare Briefing
     jq.run_daily(send_scheduled_briefing, time(8, 0, tzinfo=TIMEZONE), name="daily_warfare")
+    # 12:00 Astrophysics Briefing
     jq.run_daily(send_scheduled_briefing, time(12, 0, tzinfo=TIMEZONE), name="noon_astrophysics")
-    jq.run_daily(send_scheduled_briefing, time(19, 0, tzinfo=TIMEZONE), name="evening_astrophysics")
+    # 15:00 Cybersecurity Briefing
+    jq.run_daily(send_scheduled_briefing, time(15, 0, tzinfo=TIMEZONE), name="afternoon_cyber")
+    # 20:00 Quantum Briefing
+    jq.run_daily(send_scheduled_briefing, time(20, 0, tzinfo=TIMEZONE), name="evening_quantum")
 
     # Handlers
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("ping", cmd_ping))
-    app.add_handler(CommandHandler("generate", cmd_generate))
     app.add_handler(CommandHandler("test_war", trigger_war_test))
     app.add_handler(CommandHandler("test_astro", trigger_astro_test))
+    app.add_handler(CommandHandler("test_intel", test_intel))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_message))
 
     print(f"--- {core.AGENT_NAME} DAEMON ACTIVE ---")
