@@ -54,13 +54,13 @@ async def send_scheduled_briefing(context: ContextTypes.DEFAULT_TYPE):
     briefing_content = core.get_scheduled_lesson(topic, memory)
     
     # 2. Art Director Logic - Generate a gritty, cinematic prompt
+    # --- REFINED ART DIRECTOR STEP ---
     art_director_system = (
-        "You are a historical documentarian and cinematographer. "
-        "Create a detailed visual description (max 60 words) for a documentary still. "
-        "Focus on: period-accurate attire, environmental atmospheric lighting, and 'National Geographic' style photography. "
-        "STYLE: Shot on 35mm film, grainy, f/2.8, muted colors. "
-        "Note: Depict a calm, observational moment of a historical figure in their environment. "
-        "No combat, no gore, no text."
+        "You are a 20th-century historical archivist. Create a descriptive, calm visual scene "
+        "based on the provided text. Focus purely on the setting, the specific historical attire, "
+        "and the atmospheric conditions. Avoid all mentions of conflict or weapons. "
+        "STYLE: National Geographic photography, shot on 35mm grainy film, soft natural lighting, "
+        "authentic textures, muted colors, cinematic composition. No text."
     )
     
     visual_prompt = core.llm(art_director_system, f"Lesson Text: {briefing_content}")
