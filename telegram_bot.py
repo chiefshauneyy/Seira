@@ -106,34 +106,27 @@ async def send_scheduled_briefing(context: ContextTypes.DEFAULT_TYPE):
     chat_id = memory.get("profile", {}).get("telegram_chat_id")
     
     if not chat_id:
-        logging.error("No chat_id found in memory.")
         return
 
-    # 1. Determine Topic
     topic = "warfare" if "warfare" in job.name else "astrophysics"
-    
-    # 2. Get Lesson Text
     briefing_content = core.get_scheduled_lesson(topic, memory)
     
-    # 3. Create a Visual Prompt
-    # We take the first 100 characters of the lesson to guide the image style
-    visual_prompt = f"Futuristic cinematic 8k illustration of {topic}: {briefing_content[:100]}"
+    # --- NEW ART DIRECTOR STEP ---
+    # We ask the LLM to write a specific image prompt based on the lesson text
+    art_director_system = "You are a world-class concept artist. Create a single, highly detailed image generation prompt (max 50 words) that accurately depicts the historical or scientific content of the provided text. Focus on lighting, specific gear, and accuracy. No text in the image."
+    
+    # This calls the LLM to turn the lesson into a professional prompt
+    visual_prompt = core.llm(art_director_system, f"Lesson Text: {briefing_content}")
+    print(f"DEBUG: Art Director Prompt: {visual_prompt}")
     
     try:
         pipeline = ImagePipeline()
-        # Generate the image (saves to ./assets/daily_posts/)
         local_path = pipeline.generate_free_image(visual_prompt)
 
         if local_path and os.path.exists(local_path):
             with open(local_path, 'rb') as photo:
-                # Telegram captions have a 1024 char limit. 
-                # If the briefing is long, we send image first, then text.
                 if len(briefing_content) <= 1000:
-                    await context.bot.send_photo(
-                        chat_id=chat_id, 
-                        photo=photo, 
-                        caption=briefing_content
-                    )
+                    await context.bot.send_photo(chat_id=chat_id, photo=photo, caption=briefing_content)
                 else:
                     await context.bot.send_photo(chat_id=chat_id, photo=photo)
                     await context.bot.send_message(chat_id=chat_id, text=briefing_content)
@@ -142,8 +135,7 @@ async def send_scheduled_briefing(context: ContextTypes.DEFAULT_TYPE):
             
     except Exception as e:
         logging.error(f"Briefing generation error: {e}")
-        # Fallback to text-only so you don't miss the briefing
-        await context.bot.send_message(chat_id=chat_id, text=f"⚠️ Visual synthesis failed, but briefing is ready:\n\n{briefing_content}")
+        await context.bot.send_message(chat_id=chat_id, text=briefing_content)
 
 # --- COMMANDS ---
 
