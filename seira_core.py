@@ -48,6 +48,10 @@ def _default_memory() -> Dict[str, Any]:
             "warfare": [],
             "astrophysics": []
         },
+        "interests": {
+            "warfare": 0,
+            "astrophysics": 0
+        },
         "notes": [],
         "preferences": {
             "workflow": "Full code updates only. Git: PC push -> Mac pull."
@@ -61,9 +65,13 @@ def load_memory() -> Dict[str, Any]:
         with open(MEMORY_PATH, "r", encoding="utf-8") as f:
             data = json.load(f)
         base = _default_memory()
-        # Ensure structural integrity for history tracking
+        
+        # Ensure structural integrity for interest tracking
+        if "interests" not in data:
+            data["interests"] = base["interests"]
         if "history" not in data: 
             data["history"] = base["history"]
+            
         return data
     except Exception:
         return _default_memory()
@@ -81,39 +89,32 @@ def llm(system: str, user: str) -> str:
     )
     return resp.choices[0].message.content.strip()
 
-# --- INTERFACE FUNCTIONS ---
+# --- INTELLIGENCE TOOLS ---
 
-async def on_voice(update, context):
-    """Downloads voice note, transcribes with Whisper, and routes to on_message logic."""
-    from telegram_bot import on_message 
-    
-    logging.info("Voice note received. Transcribing...")
-    voice_file = await update.message.voice.get_file()
-    audio_data = io.BytesIO()
-    await voice_file.download_to_memory(audio_data)
-    audio_data.seek(0)
-    audio_data.name = "voice.ogg"
-
-    from openai import OpenAI
-    client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
-    transcript = client.audio.transcriptions.create(model="whisper-1", file=audio_data).text
-    
-    logging.info(f"Transcript: {transcript}")
-    update.message.text = transcript
-    await on_message(update, context)
+def track_engagement(text: str, memory: Dict[str, Any]):
+    """Analyzes user text to increment interest scores."""
+    for topic in memory["interests"].keys():
+        if topic in text.lower():
+            memory["interests"][topic] += 1
+    save_memory(memory)
 
 # --- THE LESSON ENGINE ---
 
 def get_scheduled_lesson(topic: str, memory: Dict[str, Any]) -> str:
     history = memory.get("history", {}).get(topic, [])
+    interest_level = memory.get("interests", {}).get(topic, 0)
     avoidance_str = ", ".join(history[-10:]) if history else "None yet."
     
+    # Complexity scales with interest level
+    depth = "introductory" if interest_level < 5 else "highly technical/obscure"
+    
     if topic == "warfare":
-        system = f"You are {AGENT_NAME}. Provide a briefing on an obscure moment in warfare history."
-        user = f"Operator Background: {memory['profile']['background']}. Avoid these: {avoidance_str}. Focus on tactics/snipers."
+        system = f"You are {AGENT_NAME}. Provide a {depth} briefing on an obscure moment in warfare history."
+        user = (f"Operator Background: {memory['profile']['background']}. "
+                f"Interest Score: {interest_level}. Avoid these: {avoidance_str}. Focus on tactics/snipers.")
     else:
-        system = f"You are {AGENT_NAME}. Provide a briefing on a complex astrophysics concept."
-        user = f"Avoid these: {avoidance_str}. Explain with professional precision."
+        system = f"You are {AGENT_NAME}. Provide a {depth} briefing on a complex astrophysics concept."
+        user = f"Interest Score: {interest_level}. Avoid these: {avoidance_str}. Explain with professional precision."
 
     content = llm(system, user)
     gist = llm("Summarize this lesson in 3-5 words for a log:", content)
@@ -126,6 +127,10 @@ def get_scheduled_lesson(topic: str, memory: Dict[str, Any]) -> str:
 
 def handle_command(text: str, memory: Dict[str, Any]) -> Tuple[bool, str, Dict[str, Any]]:
     cmd = text.strip()
+    
+    # Auto-track interest whenever a message is processed
+    track_engagement(cmd, memory)
+    
     if cmd.lower() == "/help": return True, HELP_TEXT, memory
     if cmd.lower() == "/memory": return True, json.dumps(memory, indent=2), memory
     
@@ -144,7 +149,3 @@ def handle_command(text: str, memory: Dict[str, Any]) -> Tuple[bool, str, Dict[s
         return True, "📝 Note logged.", memory
 
     return False, "", memory
-
-def memory_summary(memory: Dict[str, Any]) -> str:
-    p = memory.get("profile", {})
-    return f"Operator: {p.get('name')} | Identity: {p.get('identity')}"

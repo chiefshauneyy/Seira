@@ -193,12 +193,23 @@ async def cmd_generate(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_allowed(update): return
+    
     text = update.message.text.strip()
     memory = core.load_memory()
+    
+    # Check if this is a reply to a briefing
+    if update.message.reply_to_message:
+        original_text = update.message.reply_to_message.caption or update.message.reply_to_message.text
+        system = f"You are {core.AGENT_NAME}. Deep dive into this specific briefing topic: {original_text}"
+        await update.message.reply_text(core.llm(system, f"Analysis Request: {text}"))
+        return
+
+    # Standard command handling
     handled, reply, _ = core.handle_command(text, memory)
     if handled:
         await update.message.reply_text(reply)
         return
+        
     system = f"You are {core.AGENT_NAME}, Shaun's personal AI companion. Military bearing."
     await update.message.reply_text(core.llm(system, f"User: {text}"))
 
