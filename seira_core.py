@@ -1,10 +1,9 @@
 import os
 import json
 import re
-import io
 import logging
 from datetime import datetime
-from typing import Any, Dict, Optional, Tuple, List
+from typing import Any, Dict, Tuple
 from dotenv import load_dotenv
 from openai import OpenAI
 
@@ -18,28 +17,19 @@ client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
 def _now_iso() -> str:
     return datetime.now().isoformat(timespec="seconds")
 
-def _default_memory() -> Dict[str, Any]:
-    return {
-        "profile": {"name": "Shaun Constantino", "background": "USMC Scout Sniper", "telegram_chat_id": None},
-        "history": {"warfare": [], "astrophysics": [], "lore": []},
-        "interests": {"warfare": 0, "astrophysics": 0, "cybersecurity": 0, "lore": 0},
-        "preferences": {}
-    }
-
 def load_memory() -> Dict[str, Any]:
-    if not os.path.exists(MEMORY_PATH): return _default_memory()
-    try:
-        with open(MEMORY_PATH, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except: return _default_memory()
+    if not os.path.exists(MEMORY_PATH):
+        return {"profile": {"telegram_chat_id": None}, "history": {}, "interests": {}}
+    with open(MEMORY_PATH, "r", encoding="utf-8") as f:
+        return json.load(f)
 
 def save_memory(memory: Dict[str, Any]) -> None:
     with open(MEMORY_PATH, "w", encoding="utf-8") as f:
         json.dump(memory, f, indent=2, ensure_ascii=False)
 
-def llm(system: str, user: str, model="gpt-4o-mini") -> str:
+def llm(system: str, user: str) -> str:
     resp = client.chat.completions.create(
-        model=model,
+        model="gpt-4o",
         messages=[{"role": "system", "content": system}, {"role": "user", "content": user}]
     )
     return resp.choices[0].message.content.strip()
@@ -48,18 +38,16 @@ def get_scheduled_lesson(topic: str, memory: Dict[str, Any]) -> str:
     history = memory.get("history", {}).get(topic, [])
     avoidance = ", ".join(history[-10:]) if history else "None"
     
-    if topic == "warfare":
-        sys = f"You are {AGENT_NAME}. Obscure warfare history briefing."
-        usr = f"Focus: Tactics/Snipers. Avoid: {avoidance}."
-    elif topic == "astrophysics":
-        sys = f"You are {AGENT_NAME}. Complex astrophysics briefing."
-        usr = f"Precision scale. Avoid: {avoidance}."
-    else:
-        sys = f"You are {AGENT_NAME}. Dune lore archive."
-        usr = f"Strategy focus. Avoid: {avoidance}."
-
-    content = llm(sys, usr, model="gpt-4o")
-    gist = llm("3-5 word summary:", content)
+    system = f"You are {AGENT_NAME}. Provide a deep-dive tactical briefing on {topic}."
+    user = f"Avoid these previous topics: {avoidance}. Focus on technical precision."
+    
+    content = llm(system, user)
+    gist = llm("Summarize in 3 words:", content)
     memory.setdefault("history", {}).setdefault(topic, []).append(f"{_now_iso()}: {gist}")
     save_memory(memory)
     return content
+
+def handle_command(text: str, memory: Dict[str, Any]) -> Tuple[bool, str]:
+    if text.lower() == "/memory":
+        return True, json.dumps(memory, indent=2)
+    return False, ""
