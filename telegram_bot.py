@@ -47,30 +47,33 @@ async def send_scheduled_briefing(context: ContextTypes.DEFAULT_TYPE):
         # 1. Get raw lesson
         raw_content = core.get_scheduled_lesson(topic, memory)
         
-        # 2. Scientific/Historical Formatter (No Emojis, Professional Tone)
+        # 2. Strict Academic Formatter (Strict 800 character target)
         formatter_system = (
-            "You are a Senior Editor at a prestigious Academic Journal. "
-            "Rewrite the content into a serious, high-level briefing. "
-            "RULES: No emojis. No marketing speak. Max 950 characters. "
-            "Use clear bold headers. End with 3 technical hashtags."
+            "You are a Technical Briefing Officer. Rewrite the text into a cold, "
+            "academic summary. RULES: No emojis. No marketing speak. "
+            "STRICT LIMIT: 800 characters total. Use 3-4 bold bullet points. "
+            "End with 3 technical hashtags."
         )
         briefing_content = core.llm(formatter_system, raw_content)
         
-        # 3. Adaptive Art Director (Banning Text and Diagrams)
+        # --- HARD SAFETY TRIM ---
+        # Telegram caps captions at 1024. If LLM hallucinated a long response, we trim it.
+        if len(briefing_content) > 1000:
+            briefing_content = briefing_content[:997] + "..."
+        
+        # 3. Art Director (Ensuring cinematic visuals with NO text)
         if topic == "warfare":
             art_director_system = (
-                "Technical prompt for AI image: 35mm black and white film, "
-                "grainy documentary style, high contrast, raw historical photography. "
-                "NO TEXT, NO LABELS, NO WATERMARKS."
+                "Technical prompt: 35mm black and white film, grainy, high contrast, "
+                "1940s combat photography. NO TEXT, NO LABELS."
             )
-        else: # Astrophysics
+        else:
             art_director_system = (
-                "Technical prompt for AI image: Cinematic deep space photography, "
-                "James Webb Telescope aesthetic, high dynamic range, ultra-realistic "
-                "render of cosmic phenomena. NO TEXT, NO DIAGRAMS, NO INFOGRAPHICS."
+                "Technical prompt: Photorealistic deep space, James Webb Telescope style, "
+                "vibrant cosmic gases, 8k resolution. NO TEXT, NO DIAGRAMS."
             )
         
-        visual_prompt = core.llm(art_director_system, f"Topic: {topic}. Subject: {briefing_content[:150]}")
+        visual_prompt = core.llm(art_director_system, f"Subject: {briefing_content[:150]}")
         print(f"DEBUG: Art Director ({topic}) Prompt: {visual_prompt}")
 
         # 4. Image Generation
