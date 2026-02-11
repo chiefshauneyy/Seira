@@ -43,27 +43,28 @@ async def send_scheduled_briefing(context: ContextTypes.DEFAULT_TYPE):
 
     topic = "warfare" if "warfare" in job.name else "astrophysics"
     
-    # 1. Instagram/Telegram Optimized Lesson (Strictly under 1000 chars)
-    ig_constraint = (
-        "Write a punchy, high-value lesson. STRICTURE: Maximum 950 characters total. "
-        "Use 3-4 bullet points and clear bold headings. End with 3 hashtags. "
-        "Context: This is for an educational Instagram slide."
-    )
-    
     try:
-        # Get lesson text
-        briefing_content = core.get_scheduled_lesson(topic, memory, extra_instructions=ig_constraint)
+        # 1. Get raw lesson from core (Standard call)
+        raw_content = core.get_scheduled_lesson(topic, memory)
         
-        # 2. Adaptive Art Director (Simplified to avoid safety triggers)
+        # 2. Shrink for Instagram/Telegram (Passes through LLM again for formatting)
+        formatter_system = (
+            "You are a social media editor. Rewrite the following text into a punchy "
+            "Instagram caption. STRICTURE: Max 950 characters. Use bold headers, "
+            "bullet points, and end with 3 hashtags."
+        )
+        briefing_content = core.llm(formatter_system, raw_content)
+        
+        # 3. Adaptive Art Director
         if topic == "warfare":
-            art_director_system = "Combat photographer, 35mm black and white film, grainy, 1940s style, documentary, high contrast."
+            art_director_system = "Combat photographer, 35mm black and white film, grainy, 1940s documentary style, high contrast."
         else:
-            art_director_system = "Deep space nebula, James Webb Telescope style, vibrant infrared colors, 8k, ultra-sharp, cinematic space photography."
+            art_director_system = "Deep space nebula, James Webb Telescope style, vibrant infrared colors, 8k, ultra-sharp."
         
-        visual_prompt = core.llm(art_director_system, f"Topic: {topic}. Summary: {briefing_content[:200]}")
+        visual_prompt = core.llm(art_director_system, f"Topic: {topic}. Content: {briefing_content[:200]}")
         print(f"DEBUG: Art Director ({topic}) Prompt: {visual_prompt}")
 
-        # 3. Image Generation
+        # 4. Image Generation
         pipeline = ImagePipeline()
         local_path = pipeline.generate_free_image(visual_prompt)
         
@@ -80,7 +81,8 @@ async def send_scheduled_briefing(context: ContextTypes.DEFAULT_TYPE):
             
     except Exception as e:
         logging.error(f"Briefing generation error: {e}")
-        await context.bot.send_message(chat_id=chat_id, text="⚠️ Critical error in synthesis. Check terminal.")
+        # Send error to Telegram so you know it failed
+        await context.bot.send_message(chat_id=chat_id, text=f"⚠️ Synthesis failed: {str(e)}")
 
 async def trigger_war_test(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_allowed(update): return
