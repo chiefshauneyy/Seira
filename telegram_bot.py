@@ -36,7 +36,7 @@ def is_allowed(update: Update) -> bool:
     if not user: return False
     return str(user.id) == ALLOWED_USER_ID
 
-# --- SCHEDULED JOBS & TEST COMMAND ---
+# --- SCHEDULED JOBS & TEST COMMANDS ---
 
 async def send_scheduled_briefing(context: ContextTypes.DEFAULT_TYPE):
     job = context.job
@@ -49,23 +49,29 @@ async def send_scheduled_briefing(context: ContextTypes.DEFAULT_TYPE):
 
     # Determine topic
     topic = "warfare" if "warfare" in job.name else "astrophysics"
-    briefing_content = core.get_scheduled_lesson(topic, memory)
     
-    # --- ADAPTIVE ART DIRECTOR PROMPTS ---
+    # 1. Get the Lesson Text with Instagram Constraints
+    ig_constraint = (
+        "Write a concise, engaging lesson (max 1200 characters). "
+        "Use bullet points and clear headings. End with 3 relevant hashtags."
+    )
+    briefing_content = core.get_scheduled_lesson(topic, memory, extra_instructions=ig_constraint)
+    
+    # 2. Adaptive Art Director Logic
     if topic == "warfare":
         art_director_system = (
             "You are a combat photographer using a vintage Leica. "
             "Create a technical, comma-separated prompt (max 60 words). "
             "STYLE: High-contrast black and white, heavy film grain, motion blur, "
             "f/1.4 lens, harsh shadows, authentic historical textures, raw documentary style. "
-            "No digital smoothing, no smiling, no text."
+            "No digital smoothing, no text."
         )
     else: # Astrophysics
         art_director_system = (
             "You are a NASA deep-space imaging specialist. "
             "Create a technical, comma-separated prompt (max 60 words). "
             "STYLE: James Webb Telescope infrared aesthetic, ultra-sharp detail, "
-            "vibrant cosmic colors (nebulas, stars), high dynamic range, deep blacks, "
+            "vibrant cosmic colors, high dynamic range, deep blacks, "
             "cinematic sci-fi lighting, 8k resolution. No text."
         )
     
@@ -78,11 +84,13 @@ async def send_scheduled_briefing(context: ContextTypes.DEFAULT_TYPE):
         
         if local_path and os.path.exists(local_path):
             with open(local_path, 'rb') as photo:
-                if len(briefing_content) <= 1000:
-                    await context.bot.send_photo(chat_id=chat_id, photo=photo, caption=briefing_content)
-                else:
-                    await context.bot.send_photo(chat_id=chat_id, photo=photo)
-                    await context.bot.send_message(chat_id=chat_id, text=briefing_content)
+                # Caption character limit is handled by the 1200 char constraint above
+                await context.bot.send_photo(
+                    chat_id=chat_id, 
+                    photo=photo, 
+                    caption=briefing_content,
+                    parse_mode="Markdown"
+                )
         else:
             await context.bot.send_message(chat_id=chat_id, text=briefing_content)
             
@@ -91,17 +99,21 @@ async def send_scheduled_briefing(context: ContextTypes.DEFAULT_TYPE):
         await context.bot.send_message(chat_id=chat_id, text=briefing_content)
 
 async def trigger_war_test(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Manually triggers the full briefing flow (Text + Image) for testing."""
-    if not is_allowed(update): 
-        return
-    
-    await update.message.reply_text("Copy that, Operator. Initializing full Warfare Briefing protocol...")
-    
+    """Manually triggers the Warfare flow."""
+    if not is_allowed(update): return
+    await update.message.reply_text("Copy that. Initializing Warfare Briefing (Instagram Optimized)...")
     class MockJob:
         def __init__(self, name): self.name = name
-    
-    # Set the job name in the current context so the function knows what to generate
     context.job = MockJob("daily_warfare")
+    await send_scheduled_briefing(context)
+
+async def trigger_astro_test(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Manually triggers the Astrophysics flow."""
+    if not is_allowed(update): return
+    await update.message.reply_text("Copy that. Initializing Astrophysics Briefing (Instagram Optimized)...")
+    class MockJob:
+        def __init__(self, name): self.name = name
+    context.job = MockJob("daily_astrophysics")
     await send_scheduled_briefing(context)
 
 # --- TELEGRAM COMMAND HANDLERS ---
@@ -120,20 +132,15 @@ async def cmd_memory(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def cmd_generate(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Generates an image based on user prompt and sends it back."""
-    if not is_allowed(update): 
-        return
-
+    if not is_allowed(update): return
     if not context.args:
         await update.message.reply_text("Operator, I need a prompt. Usage: /generate [description]")
         return
-
     prompt = " ".join(context.args)
     await update.message.reply_text(f"🎨 Synthesizing visual data for: '{prompt}'...")
-
     try:
         pipeline = ImagePipeline()
         local_path = pipeline.generate_free_image(prompt)
-
         if local_path and os.path.exists(local_path):
             with open(local_path, 'rb') as photo:
                 await context.bot.send_photo(
@@ -142,25 +149,20 @@ async def cmd_generate(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     caption=f"Visualized: {prompt[:50]}..."
                 )
         else:
-            await update.message.reply_text("❌ Failed to secure the asset. Check logs.")
+            await update.message.reply_text("❌ Failed to secure the asset.")
     except Exception as e:
         logging.error(f"Generation error: {e}")
-        await update.message.reply_text(f"⚠️ System error during synthesis: {str(e)}")
+        await update.message.reply_text(f"⚠️ System error: {str(e)}")
 
 async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_allowed(update): return
     text = update.message.text.strip()
     memory = core.load_memory()
-    
     handled, reply, _ = core.handle_command(text, memory)
     if handled:
         await update.message.reply_text(reply)
         return
-
-    system = (
-        f"You are {core.AGENT_NAME}, Shaun's personal AI companion. "
-        "Maintain military bearing: concise and lethal."
-    )
+    system = f"You are {core.AGENT_NAME}, Shaun's personal AI companion. Maintain military bearing: concise and lethal."
     user_msg = f"Memory Summary:\n{core.memory_summary(memory)}\n\nUser: {text}"
     await update.message.reply_text(core.llm(system, user_msg))
 
@@ -170,26 +172,22 @@ async def main():
     if not TOKEN or len(TOKEN) < 10:
         print("CRITICAL ERROR: Telegram Token is missing or invalid!")
         return
-
     print(f"DEBUG: Attempting connection (Token ends in: {TOKEN[-5:]})")
-
     app = Application.builder().token(TOKEN).build()
-    
     job_queue = app.job_queue
     job_queue.run_daily(send_scheduled_briefing, time(8, 0, tzinfo=TIMEZONE), name="daily_warfare")
     job_queue.run_daily(send_scheduled_briefing, time(12, 0, tzinfo=TIMEZONE), name="noon_astrophysics")
     job_queue.run_daily(send_scheduled_briefing, time(19, 0, tzinfo=TIMEZONE), name="evening_astrophysics")
 
-    # --- HANDLERS (ORDER MATTERS) ---
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("generate", cmd_generate))
     app.add_handler(CommandHandler("test_war", trigger_war_test))
+    app.add_handler(CommandHandler("test_astro", trigger_astro_test))
     app.add_handler(CommandHandler("memory", cmd_memory))
     app.add_handler(MessageHandler(filters.VOICE, core.on_voice))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_message))
 
     print(f"--- {core.AGENT_NAME} DAEMON ACTIVE ---")
-    
     async with app:
         await app.initialize()
         await app.start()
