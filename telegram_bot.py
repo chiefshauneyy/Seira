@@ -148,9 +148,37 @@ async def trigger_astro_test(update: Update, context: ContextTypes.DEFAULT_TYPE)
 # --- TELEGRAM COMMAND HANDLERS ---
 
 async def cmd_ping(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Heartbeat command to check system status, memory, and next briefing."""
     if not is_allowed(update): return
+    
     now = datetime.now(TIMEZONE)
-    status_msg = f"🛰️ **{core.AGENT_NAME} HEARTBEAT**\nStatus: Operational\nTime: {now.strftime('%H:%M:%S')}"
+    current_time = now.strftime("%H:%M:%S")
+    
+    # Updated to match your new 4-job schedule
+    # 08:00, 12:00, 15:00, 20:00
+    job_times = [time(8, 0), time(12, 0), time(15, 0), time(20, 0)]
+    next_brief = "Calculated for tomorrow"
+    
+    for t in job_times:
+        brief_time = TIMEZONE.localize(datetime.combine(now.date(), t))
+        if brief_time > now:
+            diff = brief_time - now
+            hours, remainder = divmod(diff.seconds, 3600)
+            minutes, _ = divmod(remainder, 60)
+            next_brief = f"Next pulse in {hours}h {minutes}m"
+            break
+
+    # Real Memory Check
+    memory = core.load_memory()
+    lessons = memory.get("lessons_taught", 0)
+    
+    status_msg = (
+        f"🛰️ **{core.AGENT_NAME} HEARTBEAT**\n"
+        f"--- Status: Operational ---\n"
+        f"System Time: {current_time}\n"
+        f"Timing: {next_brief}\n"
+        f"Memory: {lessons} Lessons Logged"
+    )
     await update.message.reply_text(status_msg, parse_mode="Markdown")
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
