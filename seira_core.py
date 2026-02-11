@@ -106,3 +106,4 @@ def handle_command(text: str, memory: Dict[str, Any]) -> Tuple[bool, str, Dict[s
 
     return False, "", memory
     
+    
