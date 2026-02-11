@@ -44,24 +44,33 @@ async def send_scheduled_briefing(context: ContextTypes.DEFAULT_TYPE):
     topic = "warfare" if "warfare" in job.name else "astrophysics"
     
     try:
-        # 1. Get raw lesson from core (Standard call)
+        # 1. Get raw lesson
         raw_content = core.get_scheduled_lesson(topic, memory)
         
-        # 2. Shrink for Instagram/Telegram (Passes through LLM again for formatting)
+        # 2. Scientific/Historical Formatter (No Emojis, Professional Tone)
         formatter_system = (
-            "You are a social media editor. Rewrite the following text into a punchy "
-            "Instagram caption. STRICTURE: Max 950 characters. Use bold headers, "
-            "bullet points, and end with 3 hashtags."
+            "You are a Senior Editor at a prestigious Academic Journal. "
+            "Rewrite the content into a serious, high-level briefing. "
+            "RULES: No emojis. No marketing speak. Max 950 characters. "
+            "Use clear bold headers. End with 3 technical hashtags."
         )
         briefing_content = core.llm(formatter_system, raw_content)
         
-        # 3. Adaptive Art Director
+        # 3. Adaptive Art Director (Banning Text and Diagrams)
         if topic == "warfare":
-            art_director_system = "Combat photographer, 35mm black and white film, grainy, 1940s documentary style, high contrast."
-        else:
-            art_director_system = "Deep space nebula, James Webb Telescope style, vibrant infrared colors, 8k, ultra-sharp."
+            art_director_system = (
+                "Technical prompt for AI image: 35mm black and white film, "
+                "grainy documentary style, high contrast, raw historical photography. "
+                "NO TEXT, NO LABELS, NO WATERMARKS."
+            )
+        else: # Astrophysics
+            art_director_system = (
+                "Technical prompt for AI image: Cinematic deep space photography, "
+                "James Webb Telescope aesthetic, high dynamic range, ultra-realistic "
+                "render of cosmic phenomena. NO TEXT, NO DIAGRAMS, NO INFOGRAPHICS."
+            )
         
-        visual_prompt = core.llm(art_director_system, f"Topic: {topic}. Content: {briefing_content[:200]}")
+        visual_prompt = core.llm(art_director_system, f"Topic: {topic}. Subject: {briefing_content[:150]}")
         print(f"DEBUG: Art Director ({topic}) Prompt: {visual_prompt}")
 
         # 4. Image Generation
@@ -81,7 +90,6 @@ async def send_scheduled_briefing(context: ContextTypes.DEFAULT_TYPE):
             
     except Exception as e:
         logging.error(f"Briefing generation error: {e}")
-        # Send error to Telegram so you know it failed
         await context.bot.send_message(chat_id=chat_id, text=f"⚠️ Synthesis failed: {str(e)}")
 
 async def trigger_war_test(update: Update, context: ContextTypes.DEFAULT_TYPE):
