@@ -2,6 +2,7 @@ import os
 import asyncio
 import json
 import logging
+import time as time_module
 from datetime import time, datetime
 import pytz
 from dotenv import load_dotenv
@@ -30,9 +31,34 @@ def is_allowed(update: Update) -> bool:
     user = update.effective_user
     return str(user.id) == ALLOWED_USER_ID if user else False
 
+def purge_old_assets(days=1):
+    """Deletes files in the assets folder older than X days to save disk space."""
+    assets_dir = os.path.join(BASE_DIR, "assets")
+    if not os.path.exists(assets_dir):
+        return
+    
+    now = time_module.time()
+    cutoff = now - (days * 86400)
+    
+    purged_count = 0
+    for f in os.listdir(assets_dir):
+        file_path = os.path.join(assets_dir, f)
+        if os.path.isfile(file_path):
+            if os.path.getmtime(file_path) < cutoff:
+                try:
+                    os.remove(file_path)
+                    purged_count += 1
+                except Exception as e:
+                    logging.error(f"Failed to purge {f}: {e}")
+    if purged_count > 0:
+        logging.info(f"Cleanup complete. Purged {purged_count} old assets.")
+
 # --- SCHEDULED JOBS & TEST COMMANDS ---
 
 async def send_scheduled_briefing(context: ContextTypes.DEFAULT_TYPE):
+    # Trigger asset cleanup before generating new content
+    purge_old_assets(days=1)
+    
     job = context.job
     memory = core.load_memory()
     chat_id = memory.get("profile", {}).get("telegram_chat_id")
@@ -47,7 +73,7 @@ async def send_scheduled_briefing(context: ContextTypes.DEFAULT_TYPE):
         # 1. Get raw lesson
         raw_content = core.get_scheduled_lesson(topic, memory)
         
-        # 2. Strict Academic Formatter (Ensuring it stays under limit)
+        # 2. Strict Academic Formatter
         formatter_system = (
             "You are a Tactical Intelligence Officer. Rewrite the text into a cold, "
             "academic summary. No emojis. Max 800 characters. "
@@ -55,7 +81,7 @@ async def send_scheduled_briefing(context: ContextTypes.DEFAULT_TYPE):
         )
         briefing_content = core.llm(formatter_system, raw_content)
         
-        # Safety trim
+        # Safety trim for Telegram API limits
         if len(briefing_content) > 1000:
             briefing_content = briefing_content[:990] + "..."
         
