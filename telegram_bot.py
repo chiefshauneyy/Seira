@@ -47,26 +47,30 @@ async def send_scheduled_briefing(context: ContextTypes.DEFAULT_TYPE):
         logging.error("No chat_id found in memory.")
         return
 
-    # Determine topic based on job name
+    # Determine topic
     topic = "warfare" if "warfare" in job.name else "astrophysics"
-    
-    # 1. Get the Lesson Text
     briefing_content = core.get_scheduled_lesson(topic, memory)
     
-    # 2. Art Director Logic - Generate a gritty, cinematic prompt
-    # --- REFINED ART DIRECTOR STEP ---
-    # --- HARD GRIT ART DIRECTOR ---
-    art_director_system = (
-        "You are a combat photographer using a vintage Leica. "
-        "Create a technical, comma-separated prompt (max 60 words). "
-        "MANDATORY: High-contrast black and white or muted sepia, heavy film grain, "
-        "dirt and dust textures, motion blur, f/1.4 lens, harsh shadows, "
-        "authentic 19th-century textures, raw and unpolished documentary style. "
-        "No vibrant colors, no digital smoothing, no smiling, no text."
-    )
+    # --- ADAPTIVE ART DIRECTOR PROMPTS ---
+    if topic == "warfare":
+        art_director_system = (
+            "You are a combat photographer using a vintage Leica. "
+            "Create a technical, comma-separated prompt (max 60 words). "
+            "STYLE: High-contrast black and white, heavy film grain, motion blur, "
+            "f/1.4 lens, harsh shadows, authentic historical textures, raw documentary style. "
+            "No digital smoothing, no smiling, no text."
+        )
+    else: # Astrophysics
+        art_director_system = (
+            "You are a NASA deep-space imaging specialist. "
+            "Create a technical, comma-separated prompt (max 60 words). "
+            "STYLE: James Webb Telescope infrared aesthetic, ultra-sharp detail, "
+            "vibrant cosmic colors (nebulas, stars), high dynamic range, deep blacks, "
+            "cinematic sci-fi lighting, 8k resolution. No text."
+        )
     
     visual_prompt = core.llm(art_director_system, f"Lesson Text: {briefing_content}")
-    print(f"DEBUG: Art Director Prompt: {visual_prompt}")
+    print(f"DEBUG: Art Director ({topic}) Prompt: {visual_prompt}")
     
     try:
         pipeline = ImagePipeline()
@@ -74,7 +78,6 @@ async def send_scheduled_briefing(context: ContextTypes.DEFAULT_TYPE):
         
         if local_path and os.path.exists(local_path):
             with open(local_path, 'rb') as photo:
-                # Telegram captions have a 1024 character limit
                 if len(briefing_content) <= 1000:
                     await context.bot.send_photo(chat_id=chat_id, photo=photo, caption=briefing_content)
                 else:
