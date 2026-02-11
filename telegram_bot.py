@@ -79,22 +79,71 @@ async def send_scheduled_briefing(context: ContextTypes.DEFAULT_TYPE):
         logging.error(f"Scheduled generation error: {e}")
         await context.bot.send_message(chat_id=chat_id, text=briefing_content)
 
-# --- TEST COMMAND ---
+# --- UPDATED TEST COMMAND ---
 
 async def trigger_war_test(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Manually triggers a warfare briefing for testing."""
+    """Manually triggers the full briefing flow (Text + Image) for testing."""
     if not is_allowed(update): 
         return
     
-    await update.message.reply_text("Copy that, Operator. Forcing a Warfare Briefing now...")
+    await update.message.reply_text("Copy that, Operator. Initializing full Warfare Briefing protocol...")
     
+    # We pass 'warfare' as the name to simulate the job name
+    class MockJob:
+        def __init__(self, name): self.name = name
+    
+    mock_context = context
+    mock_context.job = MockJob("daily_warfare")
+    
+    # Use the same function the scheduler uses to ensure perfect parity
+    await send_scheduled_briefing(mock_context)
+
+# --- UPDATED SCHEDULED JOBS ---
+
+async def send_scheduled_briefing(context: ContextTypes.DEFAULT_TYPE):
+    job = context.job
     memory = core.load_memory()
-    lesson = core.get_scheduled_lesson("warfare", memory)
+    chat_id = memory.get("profile", {}).get("telegram_chat_id")
     
-    await context.bot.send_message(
-        chat_id=update.effective_chat.id,
-        text=lesson
-    )
+    if not chat_id:
+        logging.error("No chat_id found in memory.")
+        return
+
+    # 1. Determine Topic
+    topic = "warfare" if "warfare" in job.name else "astrophysics"
+    
+    # 2. Get Lesson Text
+    briefing_content = core.get_scheduled_lesson(topic, memory)
+    
+    # 3. Create a Visual Prompt
+    # We take the first 100 characters of the lesson to guide the image style
+    visual_prompt = f"Futuristic cinematic 8k illustration of {topic}: {briefing_content[:100]}"
+    
+    try:
+        pipeline = ImagePipeline()
+        # Generate the image (saves to ./assets/daily_posts/)
+        local_path = pipeline.generate_free_image(visual_prompt)
+
+        if local_path and os.path.exists(local_path):
+            with open(local_path, 'rb') as photo:
+                # Telegram captions have a 1024 char limit. 
+                # If the briefing is long, we send image first, then text.
+                if len(briefing_content) <= 1000:
+                    await context.bot.send_photo(
+                        chat_id=chat_id, 
+                        photo=photo, 
+                        caption=briefing_content
+                    )
+                else:
+                    await context.bot.send_photo(chat_id=chat_id, photo=photo)
+                    await context.bot.send_message(chat_id=chat_id, text=briefing_content)
+        else:
+            await context.bot.send_message(chat_id=chat_id, text=briefing_content)
+            
+    except Exception as e:
+        logging.error(f"Briefing generation error: {e}")
+        # Fallback to text-only so you don't miss the briefing
+        await context.bot.send_message(chat_id=chat_id, text=f"⚠️ Visual synthesis failed, but briefing is ready:\n\n{briefing_content}")
 
 # --- COMMANDS ---
 
