@@ -105,3 +105,4 @@ def handle_command(text: str, memory: Dict[str, Any]) -> Tuple[bool, str, Dict[s
         return True, "📝 Note logged.", memory
 
     return False, "", memory
+    
