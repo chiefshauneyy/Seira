@@ -27,7 +27,6 @@ async def send_scheduled_briefing(context: ContextTypes.DEFAULT_TYPE):
     memory = core.load_memory()
     chat_id = memory.get("profile", {}).get("telegram_chat_id") or ALLOWED_USER_ID
 
-    # Handle Lore Jobs vs News Jobs
     if "lore" in job_name:
         system = "You are SEIRA. Provide a cold, academic briefing on Dune universe lore. Focus on strategy and history. Max 600 chars."
         prompt = "Provide a lesson on a random aspect of Dune lore (e.g. Great Houses, Fremen, Spice)."
@@ -55,14 +54,54 @@ async def send_scheduled_briefing(context: ContextTypes.DEFAULT_TYPE):
     else:
         await context.bot.send_message(chat_id=chat_id, text=output, parse_mode="Markdown")
 
-# --- COMMANDS ---
+# --- MANUAL TEST HANDLERS ---
+
+async def trigger_war_test(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_allowed(update): return
+    await update.message.reply_text("Initializing Warfare Briefing Test...")
+    class MockJob:
+        def __init__(self, name): self.name = name
+    context.job = MockJob("daily_warfare")
+    await send_scheduled_briefing(context)
+
+async def trigger_astro_test(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_allowed(update): return
+    await update.message.reply_text("Initializing Astrophysics Briefing Test...")
+    class MockJob:
+        def __init__(self, name): self.name = name
+    context.job = MockJob("noon_astrophysics")
+    await send_scheduled_briefing(context)
+
+async def test_intel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_allowed(update): return
+    await update.message.reply_text("📡 Intercepting global signals...")
+    memory = core.load_memory()
+    report = core.get_scheduled_lesson("Global Intelligence", memory)
+    await update.message.reply_text(report, parse_mode='Markdown')
 
 async def cmd_ping(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_allowed(update): return
     now = datetime.now(TIMEZONE)
     memory = core.load_memory()
     lessons = memory.get("lessons_taught", 0)
-    await update.message.reply_text(f"🛰️ **{core.AGENT_NAME} HEARTBEAT**\nStatus: Operational\nTime: {now.strftime('%H:%M:%S')}\nMemory: {lessons} Logged", parse_mode="Markdown")
+    
+    job_times = [time(7, 0), time(8, 0), time(12, 0), time(15, 0), time(20, 0), time(21, 0)]
+    next_pulse = "Calculated for tomorrow"
+    for t in job_times:
+        pulse_time = TIMEZONE.localize(datetime.combine(now.date(), t))
+        if pulse_time > now:
+            diff = pulse_time - now
+            h, m = divmod(diff.seconds // 60, 60)
+            next_pulse = f"Next pulse in {h}h {m}m"
+            break
+
+    await update.message.reply_text(
+        f"🛰️ **{core.AGENT_NAME} HEARTBEAT**\n"
+        f"Status: Operational\n"
+        f"Timing: {next_pulse}\n"
+        f"Memory: {lessons} Logged", 
+        parse_mode="Markdown"
+    )
 
 async def main():
     app = Application.builder().token(TOKEN).build()
@@ -77,8 +116,11 @@ async def main():
     jq.run_daily(send_scheduled_briefing, time(21, 0, tzinfo=TIMEZONE), name="night_lore")
 
     app.add_handler(CommandHandler("ping", cmd_ping))
+    app.add_handler(CommandHandler("test_war", trigger_war_test))
+    app.add_handler(CommandHandler("test_astro", trigger_astro_test))
+    app.add_handler(CommandHandler("test_intel", test_intel))
     app.add_handler(CommandHandler("start", lambda u, c: u.message.reply_text("SEIRA online.")))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, lambda u, c: u.message.reply_text(core.llm("Military AI persona.", u.message.text))))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, lambda u, c: u.message.reply_text(core.llm(f"You are {core.AGENT_NAME}, military bearing.", u.message.text))))
 
     async with app:
         await app.initialize()
