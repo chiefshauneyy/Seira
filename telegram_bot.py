@@ -47,34 +47,36 @@ async def send_scheduled_briefing(context: ContextTypes.DEFAULT_TYPE):
         # 1. Get raw lesson
         raw_content = core.get_scheduled_lesson(topic, memory)
         
-        # 2. Strategic Formatter (Strict, Cold, No Emojis)
+        # 2. Strict Academic Formatter (Ensuring it stays under limit)
         formatter_system = (
             "You are a Tactical Intelligence Officer. Rewrite the text into a cold, "
-            "concise military briefing. STRICTURE: No emojis. Max 800 characters. "
-            "Use bold headers and short bullet points. End with 3 technical hashtags."
+            "academic summary. No emojis. Max 800 characters. "
+            "Use bold headers and 3-4 bullet points. End with 3 hashtags."
         )
         briefing_content = core.llm(formatter_system, raw_content)
         
-        # Safety trim for Telegram API limits
+        # Safety trim
         if len(briefing_content) > 1000:
             briefing_content = briefing_content[:990] + "..."
         
-        # 3. Dune-Style Art Director (Banning Text & Infographics)
+        # 3. Dune/Historical "Vibe" Overrides
+        # We stop the LLM from being creative and force these specific keywords
         if topic == "warfare":
-            art_director_system = (
-                "Technical prompt: 35mm black and white film, grainy, high contrast, "
-                "raw combat photography. Negative: text, labels, watermark, cartoon."
+            visual_prompt = (
+                "Cinematic 35mm film photography, 1940s grain, black and white, "
+                "moody shadows, raw historical realism, soldiers in distance. "
+                "NO TEXT, NO LABELS, NO MODERN GRAPHICS."
             )
-        else: # Astrophysics - The DUNE Pivot
-            art_director_system = (
-                "Technical prompt: Cinematic Dune aesthetic, brutalist space architecture, "
-                "vast scale, orange and teal grading, moody lighting, atmospheric dust, "
-                "realistic celestial bodies, 8k resolution. "
-                "CRITICAL: NO TEXT, NO DIAGRAMS, NO LABELS, NO INFOGRAPHICS."
+        else:
+            # DUNE STYLE PIVOT
+            visual_prompt = (
+                "Dune 2021 movie aesthetic, brutalist space station orbiting a "
+                "massive dark planet, orange and teal cinematic lighting, "
+                "dusty atmosphere, vast scale, highly detailed, photorealistic. "
+                "NO TEXT, NO DIAGRAMS, NO WORDS, NO CAPTIONS."
             )
         
-        visual_prompt = core.llm(art_director_system, f"Subject: {briefing_content[:150]}")
-        print(f"DEBUG: Art Director ({topic}) Prompt: {visual_prompt}")
+        print(f"DEBUG: Art Director ({topic}) Force-Prompt: {visual_prompt}")
 
         # 4. Image Generation
         pipeline = ImagePipeline()
