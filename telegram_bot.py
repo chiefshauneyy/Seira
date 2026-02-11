@@ -67,13 +67,13 @@ async def send_scheduled_briefing(context: ContextTypes.DEFAULT_TYPE):
                 "moody shadows, raw historical realism, soldiers in distance. "
                 "NO TEXT, NO LABELS, NO MODERN GRAPHICS."
             )
+        # astrophysics - The DUNE-CORE Pivot
         else:
-            # DUNE STYLE PIVOT
             visual_prompt = (
-                "Dune 2021 movie aesthetic, brutalist space station orbiting a "
-                "massive dark planet, orange and teal cinematic lighting, "
-                "dusty atmosphere, vast scale, highly detailed, photorealistic. "
-                "NO TEXT, NO DIAGRAMS, NO WORDS, NO CAPTIONS."
+                "Cinematic wide shot, Dune 2021 aesthetic, a massive brutalist monolith "
+                "floating above a dusty, desolate orange planet, deep teal space background, "
+                "harsh sunlight, realistic atmosphere, Sardaukar color palette, 8k. "
+                "STRICT RULES: NO TEXT, NO LABELS, NO LETTERS, NO NUMBERS, NO INFOGRAPHICS."
             )
         
         print(f"DEBUG: Art Director ({topic}) Force-Prompt: {visual_prompt}")
