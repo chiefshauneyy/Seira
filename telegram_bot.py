@@ -2,7 +2,7 @@ import os
 import asyncio
 import json
 import logging
-from datetime import time
+from datetime import time, datetime
 import pytz
 from dotenv import load_dotenv
 from image_pipeline import ImagePipeline
@@ -60,14 +60,12 @@ async def send_scheduled_briefing(context: ContextTypes.DEFAULT_TYPE):
             briefing_content = briefing_content[:990] + "..."
         
         # 3. Dune/Historical "Vibe" Overrides
-        # We stop the LLM from being creative and force these specific keywords
         if topic == "warfare":
             visual_prompt = (
                 "Cinematic 35mm film photography, 1940s grain, black and white, "
                 "moody shadows, raw historical realism, soldiers in distance. "
                 "NO TEXT, NO LABELS, NO MODERN GRAPHICS."
             )
-        # astrophysics - The DUNE-CORE Pivot
         else:
             visual_prompt = (
                 "Cinematic wide shot, Dune 2021 aesthetic, a massive brutalist monolith "
@@ -115,6 +113,35 @@ async def trigger_astro_test(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 # --- TELEGRAM COMMAND HANDLERS ---
 
+async def cmd_ping(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Heartbeat command to check system status and next briefing."""
+    if not is_allowed(update): return
+    
+    now = datetime.now(TIMEZONE)
+    current_time = now.strftime("%H:%M:%S")
+    
+    # Define briefing times
+    times = [time(8, 0), time(12, 0), time(19, 0)]
+    next_brief = "Scheduled for tomorrow"
+    
+    for t in times:
+        brief_time = TIMEZONE.localize(datetime.combine(now.date(), t))
+        if brief_time > now:
+            diff = brief_time - now
+            hours, remainder = divmod(diff.seconds, 3600)
+            minutes, _ = divmod(remainder, 60)
+            next_brief = f"Next briefing in {hours}h {minutes}m"
+            break
+
+    status_msg = (
+        f"🛰️ **{core.AGENT_NAME} HEARTBEAT**\n"
+        f"--- Status: Operational ---\n"
+        f"System Time: {current_time}\n"
+        f"Timing: {next_brief}\n"
+        f"Memory: Secure"
+    )
+    await update.message.reply_text(status_msg, parse_mode="Markdown")
+
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_allowed(update): return
     mem = core.load_memory()
@@ -160,6 +187,7 @@ async def main():
 
     # Handlers
     app.add_handler(CommandHandler("start", cmd_start))
+    app.add_handler(CommandHandler("ping", cmd_ping))
     app.add_handler(CommandHandler("generate", cmd_generate))
     app.add_handler(CommandHandler("test_war", trigger_war_test))
     app.add_handler(CommandHandler("test_astro", trigger_astro_test))
