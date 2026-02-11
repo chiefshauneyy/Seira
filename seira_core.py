@@ -1,11 +1,10 @@
 import os
 import json
 import logging
-from datetime import datetime
 from dotenv import load_dotenv
 import feedparser
 from newsapi import NewsApiClient
-import google.generativeai as genai
+from openai import OpenAI  # Swapped back
 
 load_dotenv()
 
@@ -15,26 +14,29 @@ logger = logging.getLogger(__name__)
 
 # Agent Metadata
 AGENT_NAME = "SEIRA"
-VERSION = "2.1.0"
 MEMORY_FILE = "memory.json"
 
 # API Setup
 NEWS_API_KEY = os.getenv("NEWS_API_KEY")
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
-if GEMINI_API_KEY:
-    genai.configure(api_key=GEMINI_API_KEY)
+# Initialize OpenAI Client
+client = OpenAI(api_key=OPENAI_API_KEY)
 
 def llm(system_prompt, user_input):
-    """The central thinking engine for Seira."""
+    """The central thinking engine using OpenAI."""
     try:
-        model = genai.GenerativeModel('gemini-1.5-flash')
-        # Combine prompts for a single-shot completion
-        full_prompt = f"SYSTEM: {system_prompt}\n\nUSER: {user_input}"
-        response = model.generate_content(full_prompt)
-        return response.text
+        response = client.chat.completions.create(
+            model="gpt-4o", # Or your preferred model
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_input}
+            ],
+            max_tokens=500
+        )
+        return response.choices[0].message.content
     except Exception as e:
-        logger.error(f"LLM Error: {e}")
+        logger.error(f"LLM Error (OpenAI): {e}")
         return "Internal cognition failure. Signal lost."
 
 class IntelEngine:
