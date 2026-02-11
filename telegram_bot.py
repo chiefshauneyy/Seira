@@ -133,37 +133,38 @@ async def cmd_generate(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # --- MAIN ---
 
 async def main():
-    # Safer debug check
     if not TOKEN or len(TOKEN) < 10:
         print("CRITICAL ERROR: Telegram Token is missing or invalid!")
         return
 
     print(f"DEBUG: Attempting connection (Token ends in: {TOKEN[-5:]})")
 
-    # Initialize Application
     app = Application.builder().token(TOKEN).build()
     
-    # Schedule Briefings
     job_queue = app.job_queue
     job_queue.run_daily(send_scheduled_briefing, time(8, 0, tzinfo=TIMEZONE), name="daily_warfare")
     job_queue.run_daily(send_scheduled_briefing, time(12, 0, tzinfo=TIMEZONE), name="noon_astrophysics")
     job_queue.run_daily(send_scheduled_briefing, time(19, 0, tzinfo=TIMEZONE), name="evening_astrophysics")
 
-    # Handlers
+    # --- HANDLERS (ORDER MATTERS) ---
+    # 1. Specific Commands first
     app.add_handler(CommandHandler("start", cmd_start))
+    app.add_handler(CommandHandler("generate", cmd_generate))
     app.add_handler(CommandHandler("test_war", trigger_war_test))
     app.add_handler(CommandHandler("memory", cmd_memory))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_message))
+    
+    # 2. Voice/Media handlers
     app.add_handler(MessageHandler(filters.VOICE, core.on_voice))
+    
+    # 3. Generic Text handler LAST (The "Catch-All")
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_message))
 
     print(f"--- {core.AGENT_NAME} DAEMON ACTIVE ---")
     
-    # Use the context manager to handle setup/teardown properly in Python 3.14
     async with app:
         await app.initialize()
         await app.start()
         await app.updater.start_polling()
-        # Keep the bot running until interrupted
         await asyncio.Event().wait()
 
 if __name__ == "__main__":
