@@ -29,20 +29,21 @@ class IntelEngine:
         """Bridges RSS feeds and NewsAPI for real-time updates."""
         intel_summary = ""
         try:
-            # 1. RSS Fetch (BBC World News - High Reliability)
+            # 1. RSS Fetch (BBC World News)
             feed = feedparser.parse("https://feeds.bbci.co.uk/news/world/rss.xml")
             if feed.entries:
                 for entry in feed.entries[:3]:
                     intel_summary += f"- {entry.title}\n"
             
-            # 2. NewsAPI Fetch (Broadened query for better hit rates)
+            # 2. NewsAPI Fetch (Expanded keywords)
             if self.newsapi:
-                # Use get_everything for deeper searches than top-headlines
+                # Added Quantum Computing and Cybersecurity to the query
+                query = 'geopolitics OR military OR "quantum computing" OR cybersecurity'
                 top_headlines = self.newsapi.get_everything(
-                    q='geopolitics OR military', 
+                    q=query, 
                     language='en', 
                     sort_by='publishedAt',
-                    page_size=2
+                    page_size=3
                 )
                 for article in top_headlines.get('articles', []):
                     intel_summary += f"- {article['title']} (NewsAPI)\n"
