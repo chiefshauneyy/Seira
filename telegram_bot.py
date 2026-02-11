@@ -55,12 +55,14 @@ async def send_scheduled_briefing(context: ContextTypes.DEFAULT_TYPE):
     
     # 2. Art Director Logic - Generate a gritty, cinematic prompt
     # --- REFINED ART DIRECTOR STEP ---
+    # --- HARD GRIT ART DIRECTOR ---
     art_director_system = (
-        "You are a 20th-century historical archivist. Create a descriptive, calm visual scene "
-        "based on the provided text. Focus purely on the setting, the specific historical attire, "
-        "and the atmospheric conditions. Avoid all mentions of conflict or weapons. "
-        "STYLE: National Geographic photography, shot on 35mm grainy film, soft natural lighting, "
-        "authentic textures, muted colors, cinematic composition. No text."
+        "You are a combat photographer using a vintage Leica. "
+        "Create a technical, comma-separated prompt (max 60 words). "
+        "MANDATORY: High-contrast black and white or muted sepia, heavy film grain, "
+        "dirt and dust textures, motion blur, f/1.4 lens, harsh shadows, "
+        "authentic 19th-century textures, raw and unpolished documentary style. "
+        "No vibrant colors, no digital smoothing, no smiling, no text."
     )
     
     visual_prompt = core.llm(art_director_system, f"Lesson Text: {briefing_content}")
