@@ -6,6 +6,7 @@ import logging
 from datetime import time
 import pytz
 from dotenv import load_dotenv
+from image_pipeline import ImagePipeline
 from telegram import Update
 from telegram.ext import (
     Application,
@@ -98,6 +99,37 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_msg = f"Memory Summary:\n{core.memory_summary(memory)}\n\nUser: {text}"
     await update.message.reply_text(core.llm(system, user_msg))
 
+# --- IMAGE GENERATION COMMAND ---
+
+async def cmd_generate(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Generates an image based on user prompt and sends it back."""
+    if not is_allowed(update): 
+        return
+
+    if not context.args:
+        await update.message.reply_text("Operator, I need a prompt. Usage: /generate [description]")
+        return
+
+    prompt = " ".join(context.args)
+    await update.message.reply_text(f"🎨 Synthesizing visual data for: '{prompt}'...")
+
+    try:
+        pipeline = ImagePipeline()
+        # Generate the image (this saves it to ./assets/daily_posts/)
+        local_path = pipeline.generate_free_image(prompt)
+
+        if local_path and os.path.exists(local_path):
+            with open(local_path, 'rb') as photo:
+                await context.bot.send_photo(
+                    chat_id=update.effective_chat.id, 
+                    photo=photo,
+                    caption=f"Visualized: {prompt[:50]}..."
+                )
+        else:
+            await update.message.reply_text("❌ Failed to secure the asset. Check logs.")
+    except Exception as e:
+        logging.error(f"Generation error: {e}")
+        await update.message.reply_text(f"⚠️ System error during synthesis: {str(e)}")
 # --- MAIN ---
 
 async def main():
