@@ -3,6 +3,8 @@ import json
 import re
 import io
 import logging
+import feedparser
+from newsapi import NewsApiClient
 from datetime import datetime
 from typing import Any, Dict, Optional, Tuple, List
 from dotenv import load_dotenv
@@ -13,115 +15,69 @@ load_dotenv(os.path.join(BASE_DIR, ".env"))
 
 AGENT_NAME = os.getenv("AGENT_NAME", "Seira")
 MEMORY_PATH = os.path.join(BASE_DIR, os.getenv("MEMORY_PATH", "memory.json"))
+NEWS_KEY = os.getenv("NEWS_API_KEY")
 
-# Regex for command parsing
-REMEMBER_RE = re.compile(r"^/remember\s+([^=\s]+)\s*=\s*(.+)\s*$", re.IGNORECASE)
-NOTE_RE = re.compile(r"^/note\s+(.+)\s*$", re.IGNORECASE)
+# --- INTEL ENGINE ---
 
-HELP_TEXT = f"""
-{AGENT_NAME} Operator Commands:
-  /help                Show this help
-  /memory              Print current memory
-  /remember <k>=<v>    Save a specific key/value
-  /note <text>         Append a timestamped note
-""".strip()
+class IntelEngine:
+    def __init__(self):
+        self.api = NewsApiClient(api_key=NEWS_KEY) if NEWS_KEY else None
 
-def _now_iso() -> str:
-    return datetime.now().isoformat(timespec="seconds")
-
-def _default_memory() -> Dict[str, Any]:
-    return {
-        "profile": {
-            "name": "Shaun Constantino",
-            "age": 27,
-            "background": "USMC Scout Sniper / PMC / Cloud Architecture",
-            "identity": "Mexican & Native American (Red Cloud descendant)",
-            "location": "San Antonio, TX",
-            "telegram_chat_id": None
-        },
-        "work": {
-            "role": "Cloud Architecture Contractor",
-            "projects": ["CCTAT", "n8n Ag-Market Automation", "$henanomics"],
-            "rules": "Keep AOL and CCTAT documentation strictly separate."
-        },
-        "history": {
-            "warfare": [],
-            "astrophysics": []
-        },
-        "interests": {
-            "warfare": 0,
-            "astrophysics": 0
-        },
-        "notes": [],
-        "preferences": {
-            "workflow": "Full code updates only. Git: PC push -> Mac pull."
-        }
-    }
-
-def load_memory() -> Dict[str, Any]:
-    if not os.path.exists(MEMORY_PATH):
-        return _default_memory()
-    try:
-        with open(MEMORY_PATH, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        base = _default_memory()
+    def get_global_briefing(self, query: str = "geopolitics OR military technology") -> str:
+        """Fetches real-time news and formats it as a tactical briefing."""
+        if not self.api:
+            return "⚠️ Intel Link Offline: Missing NewsAPI Key."
         
-        # Ensure structural integrity for interest tracking
-        if "interests" not in data:
-            data["interests"] = base["interests"]
-        if "history" not in data: 
-            data["history"] = base["history"]
+        try:
+            # Fetch latest headlines
+            top_headlines = self.api.get_everything(q=query, language='en', sort_by='publishedAt', page_size=3)
+            articles = top_headlines.get('articles', [])
             
-        return data
-    except Exception:
-        return _default_memory()
+            if not articles:
+                return "📡 Scanning... No immediate threats or developments detected in current sectors."
 
-def save_memory(memory: Dict[str, Any]) -> None:
-    with open(MEMORY_PATH, "w", encoding="utf-8") as f:
-        json.dump(memory, f, indent=2, ensure_ascii=False)
+            intel_report = "📰 **CURRENT INTEL FEED**\n\n"
+            for art in articles:
+                source = art['source']['name']
+                title = art['title']
+                url = art['url']
+                intel_report += f"🔹 **{source}**: {title}\n🔗 [Source]({url})\n\n"
+            
+            return intel_report
+        except Exception as e:
+            return f"❌ Intel acquisition failed: {str(e)}"
 
-def llm(system: str, user: str) -> str:
-    from openai import OpenAI
-    client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
-    resp = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[{"role": "system", "content": system}, {"role": "user", "content": user}]
-    )
-    return resp.choices[0].message.content.strip()
+intel_center = IntelEngine()
 
-# --- INTELLIGENCE TOOLS ---
-
-def track_engagement(text: str, memory: Dict[str, Any]):
-    """Analyzes user text to increment interest scores."""
-    for topic in memory["interests"].keys():
-        if topic in text.lower():
-            memory["interests"][topic] += 1
-    save_memory(memory)
-
-# --- THE LESSON ENGINE ---
+# --- MODIFIED LESSON ENGINE (Now with News Integration) ---
 
 def get_scheduled_lesson(topic: str, memory: Dict[str, Any]) -> str:
     history = memory.get("history", {}).get(topic, [])
     interest_level = memory.get("interests", {}).get(topic, 0)
     avoidance_str = ", ".join(history[-10:]) if history else "None yet."
     
-    # Complexity scales with interest level
+    # NEW: Fetch real-world context for the 8 AM Warfare briefing
+    news_context = ""
+    if topic == "warfare":
+        news_context = intel_center.get_global_briefing("Ukraine OR Middle East OR Taiwan Strait")
+
     depth = "introductory" if interest_level < 5 else "highly technical/obscure"
     
     if topic == "warfare":
-        system = f"You are {AGENT_NAME}. Provide a {depth} briefing on an obscure moment in warfare history."
+        system = f"You are {AGENT_NAME}. Provide a {depth} briefing on warfare history, but try to bridge it with current world events."
         user = (f"Operator Background: {memory['profile']['background']}. "
-                f"Interest Score: {interest_level}. Avoid these: {avoidance_str}. Focus on tactics/snipers.")
+                f"Current News Context: {news_context}. Avoid these: {avoidance_str}. Focus on snipers/tactics.")
     else:
         system = f"You are {AGENT_NAME}. Provide a {depth} briefing on a complex astrophysics concept."
-        user = f"Interest Score: {interest_level}. Avoid these: {avoidance_str}. Explain with professional precision."
+        user = f"Interest Score: {interest_level}. Avoid these: {avoidance_str}. Professional precision."
 
     content = llm(system, user)
-    gist = llm("Summarize this lesson in 3-5 words for a log:", content)
+    gist = llm("Summarize this in 3-5 words:", content)
     
     memory["history"].setdefault(topic, []).append(f"{_now_iso()}: {gist}")
     save_memory(memory)
-    return f"🚀 {topic.upper()} BRIEFING:\n\n{content}"
+    
+    return f"🚀 {topic.upper()} BRIEFING:\n\n{content}\n\n{news_context}"
 
 # --- COMMAND HANDLERS ---
 
