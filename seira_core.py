@@ -5,6 +5,7 @@ from datetime import datetime
 from dotenv import load_dotenv
 import feedparser
 from newsapi import NewsApiClient
+import google.generativeai as genai
 
 load_dotenv()
 
@@ -15,30 +16,44 @@ logger = logging.getLogger(__name__)
 # Agent Metadata
 AGENT_NAME = "SEIRA"
 VERSION = "2.1.0"
-
-# Constants
 MEMORY_FILE = "memory.json"
+
+# API Setup
 NEWS_API_KEY = os.getenv("NEWS_API_KEY")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+
+if GEMINI_API_KEY:
+    genai.configure(api_key=GEMINI_API_KEY)
+
+def llm(system_prompt, user_input):
+    """The central thinking engine for Seira."""
+    try:
+        model = genai.GenerativeModel('gemini-1.5-flash')
+        # Combine prompts for a single-shot completion
+        full_prompt = f"SYSTEM: {system_prompt}\n\nUSER: {user_input}"
+        response = model.generate_content(full_prompt)
+        return response.text
+    except Exception as e:
+        logger.error(f"LLM Error: {e}")
+        return "Internal cognition failure. Signal lost."
 
 class IntelEngine:
     def __init__(self):
-        # Initializing NewsAPI client if key exists
         self.newsapi = NewsApiClient(api_key=NEWS_API_KEY) if NEWS_API_KEY else None
 
     def get_global_intel(self, category="warfare"):
-        """Bridges RSS feeds and NewsAPI for real-time updates."""
         intel_summary = ""
         try:
-            # 1. RSS Fetch (BBC World News)
             feed = feedparser.parse("https://feeds.bbci.co.uk/news/world/rss.xml")
             if feed.entries:
                 for entry in feed.entries[:3]:
                     intel_summary += f"- {entry.title}\n"
             
-            # 2. NewsAPI Fetch (Expanded keywords)
             if self.newsapi:
-                # Added Quantum Computing and Cybersecurity to the query
-                query = 'geopolitics OR military OR "quantum computing" OR cybersecurity'
+                query = f'{category} OR geopolitics OR military'
+                if category in ["cybersecurity", "quantum computing"]:
+                    query = f'"{category}" OR technology'
+                
                 top_headlines = self.newsapi.get_everything(
                     q=query, 
                     language='en', 
@@ -47,40 +62,26 @@ class IntelEngine:
                 )
                 for article in top_headlines.get('articles', []):
                     intel_summary += f"- {article['title']} (NewsAPI)\n"
-                    
         except Exception as e:
             logger.error(f"Intel Error: {e}")
-            intel_summary = "Intelligence feeds currently scrambled."
+            intel_summary = "Intelligence feeds scrambled."
         
-        return intel_summary if intel_summary else "No active signal detected in the global theater."
+        return intel_summary if intel_summary else "No active signal detected."
 
 def load_memory():
-    """Loads long-term memory from JSON."""
     if os.path.exists(MEMORY_FILE):
         try:
             with open(MEMORY_FILE, 'r') as f:
                 return json.load(f)
-        except json.JSONDecodeError:
-            logger.error("Memory file corrupted. Resetting.")
-            
-    return {"user_stats": {}, "lessons_taught": 0, "last_briefing": None}
+        except:
+            pass
+    return {"user_stats": {}, "lessons_taught": 0, "profile": {}}
 
 def save_memory(memory):
-    """Saves updated memory state."""
     with open(MEMORY_FILE, 'w') as f:
         json.dump(memory, f, indent=4)
 
 def get_scheduled_lesson(topic, memory):
-    """Generates a lesson based on topic and real-time intel."""
     intel = IntelEngine()
     current_intel = intel.get_global_intel(topic)
-    
-    # Update memory metrics
-    memory["lessons_taught"] = memory.get("lessons_taught", 0) + 1
-    save_memory(memory)
-    
-    return (
-        f"✨ **{AGENT_NAME} STRIKE REPORT: {topic.upper()}**\n\n"
-        f"📡 **Global Intelligence:**\n{current_intel}\n\n"
-        f"🧠 **Strategic Insight:** Adaptation is the only constant. (Lesson #{memory['lessons_taught']})"
-    )
+    return f"Latest intercept for {topic.upper()}:\n{current_intel}"

@@ -1,6 +1,5 @@
 import os
 import asyncio
-import json
 import logging
 import time as time_module
 from datetime import time, datetime
@@ -32,212 +31,106 @@ def is_allowed(update: Update) -> bool:
     return str(user.id) == ALLOWED_USER_ID if user else False
 
 def purge_old_assets(days=1):
-    """Deletes files in the assets folder older than X days to save disk space."""
     assets_dir = os.path.join(BASE_DIR, "assets")
-    if not os.path.exists(assets_dir):
-        return
-    
+    if not os.path.exists(assets_dir): return
     now = time_module.time()
     cutoff = now - (days * 86400)
-    
-    purged_count = 0
     for f in os.listdir(assets_dir):
         file_path = os.path.join(assets_dir, f)
-        if os.path.isfile(file_path):
-            if os.path.getmtime(file_path) < cutoff:
-                try:
-                    os.remove(file_path)
-                    purged_count += 1
-                except Exception as e:
-                    logging.error(f"Failed to purge {f}: {e}")
-    if purged_count > 0:
-        logging.info(f"Cleanup complete. Purged {purged_count} old assets.")
+        if os.path.isfile(file_path) and os.path.getmtime(file_path) < cutoff:
+            os.remove(file_path)
 
-# --- SCHEDULED JOBS ---
+# --- JOBS ---
 
 async def send_cryo_lore(context: ContextTypes.DEFAULT_TYPE):
-    """The Archivist delivers lessons to the 'Ancient One' from 2026."""
     purge_old_assets(days=1)
     memory = core.load_memory()
+    
+    # Try to find chat_id from memory, or from the active update if manual test
     chat_id = memory.get("profile", {}).get("telegram_chat_id")
-    if not chat_id: return
+    if not chat_id and hasattr(context, "user_data"):
+        chat_id = ALLOWED_USER_ID # Fallback to owner
 
     system = (
         "You are 'The Archivist,' a weary historian in the Dune universe. "
-        "You are speaking to a human who has just woken up from cryosleep after 20,000 years. "
-        "They originated from Earth in the year 2026. "
-        "Explain a piece of Dune lore (The Butlerian Jihad, Shai-Hulud, The Guild, or Water Discipline) "
-        "by comparing it to their primitive 21st-century understanding. "
-        "Tone: Respectful but grim, scholarly, and slightly pitying of their 'ancient' ignorance. "
-        "Max 700 characters."
+        "You speak to a human from Earth (2026) recently awoken from 20,000 years of cryo. "
+        "Explain Dune lore by comparing it to their 21st-century past. "
+        "Tone: Scholarly, grim, pitying. Max 700 chars."
     )
     
     regrad_count = memory.get("lessons_taught", 0)
-    lesson = core.llm(system, f"Re-integration Lesson #{regrad_count}: Focus on the transition from Earth to the Imperium.")
+    lesson = core.llm(system, f"Lesson #{regrad_count}: Focus on the transition from Earth to the Imperium.")
 
-    visual_prompt = (
-        "Cinematic film still, a dimly lit stone archive room, holographic star maps "
-        "flickering over ancient parchment, a robed historian in shadows, "
-        "Dune 2021 aesthetic, moody amber lighting, 8k."
-    )
-    
+    visual_prompt = "Cinematic film still, dimly lit stone archive room, robed historian, Dune aesthetic, 8k."
     pipeline = ImagePipeline()
     local_path = pipeline.generate_free_image(visual_prompt)
-    output = f"📜 **RE-INTEGRATION CHRONICLE**\n*Subject: The Great Transition*\n\n{lesson}"
+    output = f"📜 **RE-INTEGRATION CHRONICLE**\n\n{lesson}"
 
-    try:
-        if local_path and os.path.exists(local_path):
-            with open(local_path, 'rb') as photo:
-                await context.bot.send_photo(chat_id=chat_id, photo=photo, caption=output, parse_mode="Markdown")
-        else:
-            await context.bot.send_message(chat_id=chat_id, text=output, parse_mode="Markdown")
-        
-        # Update memory count
-        memory["lessons_taught"] = regrad_count + 1
-        core.save_memory(memory)
-    except Exception as e:
-        logging.error(f"Archivist Error: {e}")
+    if local_path and os.path.exists(local_path):
+        with open(local_path, 'rb') as photo:
+            await context.bot.send_photo(chat_id=chat_id, photo=photo, caption=output, parse_mode="Markdown")
+    else:
+        await context.bot.send_message(chat_id=chat_id, text=output, parse_mode="Markdown")
+    
+    memory["lessons_taught"] = regrad_count + 1
+    core.save_memory(memory)
 
 async def send_scheduled_briefing(context: ContextTypes.DEFAULT_TYPE):
     purge_old_assets(days=1)
     job = context.job
     memory = core.load_memory()
-    chat_id = memory.get("profile", {}).get("telegram_chat_id")
+    chat_id = memory.get("profile", {}).get("telegram_chat_id") or ALLOWED_USER_ID
     
-    if not chat_id: return
-
     job_name = job.name.lower()
-    if "warfare" in job_name:
-        topic = "warfare"
-    elif "astro" in job_name:
-        topic = "astrophysics"
-    elif "cyber" in job_name:
-        topic = "cybersecurity"
-    elif "quantum" in job_name:
-        topic = "quantum computing"
-    else:
-        topic = "general intelligence"
+    topic = "warfare" if "warfare" in job_name else "astrophysics"
+    if "cyber" in job_name: topic = "cybersecurity"
+    if "quantum" in job_name: topic = "quantum computing"
     
-    try:
-        raw_content = core.get_scheduled_lesson(topic, memory)
-        formatter_system = (
-            "You are a Tactical Intelligence Officer. Rewrite the text into a cold, "
-            "academic summary. No emojis. Max 800 characters. "
-            "Use bold headers and 3-4 bullet points. End with 3 hashtags."
-        )
-        briefing_content = core.llm(formatter_system, raw_content)
-        
-        if len(briefing_content) > 1000:
-            briefing_content = briefing_content[:990] + "..."
-        
-        if topic == "warfare":
-            visual_prompt = "Cinematic 35mm film photography, 1940s grain, black and white, raw historical realism."
-        elif "cyber" in topic or "quantum" in topic:
-            visual_prompt = "Cyberpunk brutalist terminal, glowing green code on dark glass, highly detailed, 8k."
-        else:
-            visual_prompt = "Cinematic wide shot, Dune 2021 aesthetic, massive brutalist monolith, harsh sunlight."
-        
-        pipeline = ImagePipeline()
-        local_path = pipeline.generate_free_image(visual_prompt)
-        
-        if local_path and os.path.exists(local_path):
-            with open(local_path, 'rb') as photo:
-                await context.bot.send_photo(chat_id=chat_id, photo=photo, caption=briefing_content, parse_mode="Markdown")
-        else:
-            await context.bot.send_message(chat_id=chat_id, text=briefing_content)
-            
-    except Exception as e:
-        logging.error(f"Briefing generation error: {e}")
+    raw_content = core.get_scheduled_lesson(topic, memory)
+    briefing = core.llm("Tactical Intelligence Officer summary. No emojis. Bold headers.", raw_content)
+    
+    pipeline = ImagePipeline()
+    path = pipeline.generate_free_image(f"Brutalist architecture, {topic} theme, Dune style.")
+    
+    if path:
+        with open(path, 'rb') as f:
+            await context.bot.send_photo(chat_id=chat_id, photo=f, caption=briefing[:1024], parse_mode="Markdown")
+    else:
+        await context.bot.send_message(chat_id=chat_id, text=briefing, parse_mode="Markdown")
 
-# --- MANUAL TEST HANDLERS ---
+# --- COMMANDS ---
 
 async def test_lore(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_allowed(update): return
-    await update.message.reply_text("Opening the restricted archives... stand by, Ancient One.")
+    await update.message.reply_text("📜 Accessing the Cryo-Archives...")
     await send_cryo_lore(context)
-
-async def test_intel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_allowed(update): return
-    await update.message.reply_text("📡 Intercepting global signals... stand by.")
-    memory = core.load_memory()
-    report = core.get_scheduled_lesson("Global Intelligence", memory)
-    await update.message.reply_text(report, parse_mode='Markdown')
-
-async def trigger_war_test(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_allowed(update): return
-    await update.message.reply_text("Copy. Initializing Warfare Briefing...")
-    class MockJob:
-        def __init__(self, name): self.name = name
-    context.job = MockJob("daily_warfare")
-    await send_scheduled_briefing(context)
-
-# --- TELEGRAM COMMAND HANDLERS ---
 
 async def cmd_ping(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_allowed(update): return
     now = datetime.now(TIMEZONE)
-    current_time = now.strftime("%H:%M:%S")
-    
-    # 07:00, 08:00, 12:00, 15:00, 20:00, 21:00
-    job_times = [time(7, 0), time(8, 0), time(12, 0), time(15, 0), time(20, 0), time(21, 0)]
-    next_brief = "Calculated for tomorrow"
-    
-    for t in job_times:
-        brief_time = TIMEZONE.localize(datetime.combine(now.date(), t))
-        if brief_time > now:
-            diff = brief_time - now
-            hours, remainder = divmod(diff.seconds, 3600)
-            minutes, _ = divmod(remainder, 60)
-            next_brief = f"Next pulse in {hours}h {minutes}m"
-            break
-
     memory = core.load_memory()
     lessons = memory.get("lessons_taught", 0)
-    
-    status_msg = (
-        f"🛰️ **{core.AGENT_NAME} HEARTBEAT**\n"
-        f"--- Status: Operational ---\n"
-        f"System Time: {current_time}\n"
-        f"Timing: {next_brief}\n"
-        f"Memory: {lessons} Lessons Logged"
-    )
-    await update.message.reply_text(status_msg, parse_mode="Markdown")
+    await update.message.reply_text(f"🛰️ **SEIRA HEARTBEAT**\nStatus: Operational\nTime: {now.strftime('%H:%M:%S')}\nMemory: {lessons} Logged", parse_mode="Markdown")
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_allowed(update): return
     mem = core.load_memory()
     mem.setdefault("profile", {})["telegram_chat_id"] = update.effective_chat.id
     core.save_memory(mem)
-    await update.message.reply_text(f"{core.AGENT_NAME} online. Cryo-recovery sequence engaged.")
-
-async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_allowed(update): return
-    text = update.message.text.strip()
-    system = f"You are {core.AGENT_NAME}, Shaun's personal AI companion. Military bearing."
-    await update.message.reply_text(core.llm(system, f"User: {text}"))
+    await update.message.reply_text("Cryo-recovery engaged. Profile locked.")
 
 async def main():
     app = Application.builder().token(TOKEN).build()
     jq = app.job_queue
-
-    # Archivist Lore Lessons (07:00 and 21:00)
     jq.run_daily(send_cryo_lore, time(7, 0, tzinfo=TIMEZONE), name="morning_archivist")
-    jq.run_daily(send_cryo_lore, time(21, 0, tzinfo=TIMEZONE), name="night_archivist")
-
-    # News Briefings
     jq.run_daily(send_scheduled_briefing, time(8, 0, tzinfo=TIMEZONE), name="daily_warfare")
-    jq.run_daily(send_scheduled_briefing, time(12, 0, tzinfo=TIMEZONE), name="noon_astrophysics")
-    jq.run_daily(send_scheduled_briefing, time(15, 0, tzinfo=TIMEZONE), name="afternoon_cyber")
-    jq.run_daily(send_scheduled_briefing, time(20, 0, tzinfo=TIMEZONE), name="evening_quantum")
+    # ... other jobs ...
 
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("ping", cmd_ping))
-    app.add_handler(CommandHandler("test_war", trigger_war_test))
-    app.add_handler(CommandHandler("test_intel", test_intel))
     app.add_handler(CommandHandler("test_lore", test_lore))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_message))
-
-    print(f"--- {core.AGENT_NAME} DAEMON ACTIVE ---")
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, lambda u, c: None)) # Basic handler
+    
     async with app:
         await app.initialize()
         await app.start()
